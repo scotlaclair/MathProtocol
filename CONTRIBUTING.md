@@ -1,87 +1,120 @@
 # Contributing to MathProtocol
 
-Thank you for your interest in contributing to MathProtocol! This document provides guidelines for contributing to the project.
+## Pull Request Review Process
 
-## Code of Conduct
+### Review Response Requirements
 
-By participating in this project, you agree to maintain a respectful and inclusive environment for all contributors.
+When addressing review comments, contributors and automated reviewers MUST:
 
-## How to Contribute
+1. **Reply to each comment** - Every review comment must receive a direct response
+2. **Indicate resolution status** - Use one of these formats:
+   - ✅ **Addressed in commit `<sha>`** - Changes made as suggested
+   - 💬 **Discussion needed** - Comment requires clarification
+   - ❌ **Won't fix** - Explain why suggestion won't be implemented
+   - 🔄 **Alternative approach** - Describe different solution
 
-### Reporting Bugs
-- Use the GitHub issue tracker
-- Describe the bug in detail
-- Include steps to reproduce
-- Provide expected vs actual behavior
-- Include your Python version and OS
+3. **Link to changes** - When code is modified, reference:
+   - Commit SHA where change was made
+   - Line numbers of modified code
+   - Related test updates
 
-### Suggesting Enhancements
-- Use the GitHub issue tracker
-- Clearly describe the enhancement
-- Explain why it would be useful
-- Provide examples if possible
+### Example Response Format
 
-### Pull Requests
-1. Fork the repository
-2. Create a new branch (`git checkout -b feature/your-feature`)
-3. Make your changes
-4. Add or update tests as needed
-5. Ensure all tests pass
-6. Update documentation
-7. Commit your changes (`git commit -m 'Add some feature'`)
-8. Push to the branch (`git push origin feature/your-feature`)
-9. Open a Pull Request
+```markdown
+✅ Addressed in commit abc1234
 
-## Development Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/scotlaclair/MathProtocol.git
-cd MathProtocol
-
-# Create a virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run tests
-python -m pytest
+Changed validation from `len(codes) < 2` to `len(codes) != 2` as suggested.
+Updated tests in test_mathprotocol.py:L45-L52.
 ```
 
-## Coding Standards
+### Review Comment Template
 
-- Follow PEP 8 style guide
-- Use type hints for all function signatures
-- Write docstrings for all classes and functions
-- Keep functions focused and small
-- Write comprehensive tests
-- Maintain backward compatibility when possible
+Reviewers SHOULD structure comments as:
 
-## Mathematical Protocol Rules
+**Priority**: `P0` (blocking) | `P1` (important) | `P2` (nice-to-have)
 
-When contributing to the protocol logic:
-- Maintain strict validation against the three mathematical sets (Primes, Fibonacci, Powers of 2)
-- Never allow inputs outside defined ranges
-- Preserve deterministic behavior
-- Document any changes to code mappings
-- Ensure error codes remain consistent
+**Issue**: [Clear description of the problem]
 
-## Testing
+**Suggested fix**: [Concrete recommendation or code suggestion]
 
-- Write unit tests for all new features
-- Ensure all tests pass before submitting PR
-- Aim for high code coverage
-- Test edge cases and error conditions
+**Why**: [Rationale for the change]
+
+### Automated Reviewer Requirements
+
+Automated review systems (Copilot, Codex, etc.) MUST:
+
+- Post a **summary comment** linking to all addressed items
+- Use threaded replies to track resolution
+- Mark conversations as "Resolved" when changes are merged
+- Provide commit references in responses
+
+## Code Review Checklist
+
+Before marking a PR as ready for merge:
+
+- [ ] All review comments have responses
+- [ ] Blocking (P0) issues are resolved
+- [ ] Tests pass for all changes
+- [ ] Documentation updated if needed
+- [ ] Conversations marked as resolved
+
+## For Maintainers
+
+### Merging PRs
+
+Only merge when:
+1. All conversations are resolved or have "Won't fix" rationale
+2. CI/CD passes
+3. At least one approving review (for external contributors)
+
+### Resolving Conversations
+
+**Important**: GitHub Copilot and other automated reviewers cannot automatically resolve their own conversations. The PR author or maintainers must:
+
+1. Verify the fix has been implemented
+2. Check the commit reference provided in the response
+3. Manually click "Resolve conversation" on each addressed comment
+
+## Protocol-Specific Guidelines
+
+### Validation Changes
+
+When modifying validation logic in `mathprotocol.py`:
+- Add corresponding test cases in `test_mathprotocol.py`
+- Update examples in `examples.py` if behavior changes
+- Document changes in docstrings
+
+### Adding New Task/Response Codes
+
+1. Update the appropriate constant set (PRIMES, FIBONACCI, POWERS_OF_2)
+2. Add mapping in TASKS, PARAMS, or RESPONSES dict
+3. Update README.md with new code documentation
+4. Add test coverage for the new code
+5. Update SYSTEM_PROMPT.md if LLM behavior changes
+
+### Error Handling
+
+All error codes must:
+- Be powers of 2 >= 1024
+- Appear standalone (no confidence or payload)
+- Have clear documentation in README.md
+
+## Testing Requirements
+
+All PRs must include:
+- Unit tests for new functionality
+- Updated tests for modified behavior
+- All existing tests must pass
+- `pytest -v` must run successfully
 
 ## Documentation
 
-- Update README.md for user-facing changes
-- Update docstrings for code changes
-- Add examples for new features
-- Keep SYSTEM_PROMPT.md in sync with code
+Update the following when making changes:
+- `README.md` - User-facing documentation
+- `SYSTEM_PROMPT.md` - LLM instructions (if protocol changes)
+- Docstrings in code
+- `examples.py` - Usage examples
 
 ## Questions?
 
-Feel free to open an issue for questions or discussion about contributing.
+Open an issue or start a discussion if you need clarification on these guidelines.
