@@ -7,7 +7,7 @@ prompt injection and ensure deterministic behavior.
 """
 
 import re
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 
 class MathProtocol:
@@ -185,12 +185,24 @@ class MathProtocol:
                                               self.ERROR_INVALID_FORMAT}:
             return payload == ""  # Error codes should have no payload
         
-        # Normal responses should have at least 2 codes (response + confidence)
-        if len(codes) < 2:
+        # Normal responses should have exactly 2 codes (response + confidence)
+        if len(codes) != 2:
             return False
         
         # All codes must be powers of 2
         if not all(code in self.POWERS_OF_2 for code in codes):
+            return False
+        
+        # Valid confidence codes
+        CONFIDENCE_CODES = {128, 256, 512}
+        
+        # Second code must be a valid confidence code
+        if codes[1] not in CONFIDENCE_CODES:
+            return False
+        
+        # First code must be a non-confidence response code
+        VALID_RESPONSE_CODES = {2, 4, 8, 16, 32, 64}
+        if codes[0] not in VALID_RESPONSE_CODES:
             return False
         
         # Classification tasks must NOT have payload
