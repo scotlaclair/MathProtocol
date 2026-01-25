@@ -1,0 +1,6 @@
+# MathProtocol - No external dependencies required for core functionality
+# The protocol uses only Python standard library
+
+# Optional: For development and testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
