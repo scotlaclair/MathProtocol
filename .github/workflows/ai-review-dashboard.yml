@@ -1,0 +1,203 @@
+name: AI Review Dashboard
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Run every 6 hours
+  workflow_dispatch:  # Allow manual trigger
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  dashboard:
+    name: Generate AI Review Dashboard
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Generate Dashboard
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Bot usernames to track
+            const BOTS = {
+              gemini: 'gemini-code-assist[bot]',
+              copilot: 'Copilot',
+              codex: 'chatgpt-codex-connector[bot]'
+            };
+            
+            core.info('Fetching open pull requests...');
+            
+            // Get all open PRs
+            const { data: pullRequests } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100
+            });
+            
+            core.info(`Found ${pullRequests.length} open pull requests`);
+            
+            // Build dashboard data
+            const dashboardData = [];
+            
+            for (const pr of pullRequests) {
+              core.info(`Processing PR #${pr.number}: ${pr.title}`);
+              
+              // Get all comments for this PR
+              const { data: issueComments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                per_page: 100
+              });
+              
+              // Get review comments
+              const { data: reviewComments } = await github.rest.pulls.listReviewComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                per_page: 100
+              });
+              
+              // Combine all comments
+              const allComments = [...issueComments, ...reviewComments];
+              
+              // Track bot reviews
+              const botStatus = {
+                gemini: { reviewed: false, comments: 0, unresolved: 0 },
+                copilot: { reviewed: false, comments: 0, unresolved: 0 },
+                codex: { reviewed: false, comments: 0, unresolved: 0 }
+              };
+              
+              // Analyze comments
+              for (const comment of allComments) {
+                const author = comment.user.login;
+                
+                for (const [botKey, botUsername] of Object.entries(BOTS)) {
+                  if (author === botUsername) {
+                    botStatus[botKey].reviewed = true;
+                    botStatus[botKey].comments++;
+                    
+                    // Check if comment is resolved
+                    try {
+                      const { data: reactions } = await github.rest.reactions.listForIssueComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        comment_id: comment.id
+                      });
+                      
+                      const hasThumbsUp = reactions.some(r => r.content === '+1');
+                      if (!hasThumbsUp) {
+                        botStatus[botKey].unresolved++;
+                      }
+                    } catch (error) {
+                      core.warning(`Failed to fetch reactions for comment ${comment.id}: ${error.message}`);
+                    }
+                  }
+                }
+              }
+              
+              // Calculate total unresolved
+              const totalUnresolved = botStatus.gemini.unresolved + 
+                                      botStatus.copilot.unresolved + 
+                                      botStatus.codex.unresolved;
+              
+              dashboardData.push({
+                number: pr.number,
+                title: pr.title,
+                author: pr.user.login,
+                created: pr.created_at,
+                updated: pr.updated_at,
+                botStatus,
+                totalUnresolved
+              });
+            }
+            
+            // Build dashboard markdown
+            let dashboard = '# 🤖 AI Review Dashboard\n\n';
+            dashboard += `*Generated: ${new Date().toISOString()}*\n\n`;
+            dashboard += `**Total Open PRs:** ${pullRequests.length}\n\n`;
+            
+            if (dashboardData.length === 0) {
+              dashboard += '✅ No open pull requests\n';
+            } else {
+              dashboard += '## Pull Requests Overview\n\n';
+              dashboard += '| PR | Title | Author | Gemini | Copilot | Codex | Unresolved |\n';
+              dashboard += '|----|-------|--------|--------|---------|-------|------------|\n';
+              
+              for (const pr of dashboardData) {
+                const geminiStatus = pr.botStatus.gemini.reviewed 
+                  ? `✅ ${pr.botStatus.gemini.comments}` 
+                  : '⏳';
+                const copilotStatus = pr.botStatus.copilot.reviewed 
+                  ? `✅ ${pr.botStatus.copilot.comments}` 
+                  : '⏳';
+                const codexStatus = pr.botStatus.codex.reviewed 
+                  ? `✅ ${pr.botStatus.codex.comments}` 
+                  : '⏳';
+                
+                const unresolvedBadge = pr.totalUnresolved > 0 
+                  ? `⚠️ ${pr.totalUnresolved}` 
+                  : '✅ 0';
+                
+                dashboard += `| [#${pr.number}](https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${pr.number}) | ${pr.title.substring(0, 50)}${pr.title.length > 50 ? '...' : ''} | @${pr.author} | ${geminiStatus} | ${copilotStatus} | ${codexStatus} | ${unresolvedBadge} |\n`;
+              }
+              
+              dashboard += '\n## Legend\n\n';
+              dashboard += '- ✅ = Reviewed (number shows comment count)\n';
+              dashboard += '- ⏳ = Not yet reviewed\n';
+              dashboard += '- ⚠️ = Has unresolved comments\n\n';
+              
+              // Summary statistics
+              const reviewedByGemini = dashboardData.filter(pr => pr.botStatus.gemini.reviewed).length;
+              const reviewedByCopilot = dashboardData.filter(pr => pr.botStatus.copilot.reviewed).length;
+              const reviewedByCodex = dashboardData.filter(pr => pr.botStatus.codex.reviewed).length;
+              const withUnresolved = dashboardData.filter(pr => pr.totalUnresolved > 0).length;
+              
+              dashboard += '## Summary Statistics\n\n';
+              dashboard += `- **Gemini Reviews:** ${reviewedByGemini}/${pullRequests.length} PRs\n`;
+              dashboard += `- **Copilot Reviews:** ${reviewedByCopilot}/${pullRequests.length} PRs\n`;
+              dashboard += `- **Codex Reviews:** ${reviewedByCodex}/${pullRequests.length} PRs\n`;
+              dashboard += `- **PRs with Unresolved Comments:** ${withUnresolved}\n`;
+              
+              // Detailed breakdown
+              if (withUnresolved > 0) {
+                dashboard += '\n## PRs Needing Attention\n\n';
+                for (const pr of dashboardData.filter(pr => pr.totalUnresolved > 0)) {
+                  dashboard += `### [#${pr.number}](https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${pr.number}) - ${pr.title}\n\n`;
+                  dashboard += `- **Author:** @${pr.author}\n`;
+                  dashboard += `- **Unresolved Comments:**\n`;
+                  if (pr.botStatus.gemini.unresolved > 0) {
+                    dashboard += `  - Gemini: ${pr.botStatus.gemini.unresolved}\n`;
+                  }
+                  if (pr.botStatus.copilot.unresolved > 0) {
+                    dashboard += `  - Copilot: ${pr.botStatus.copilot.unresolved}\n`;
+                  }
+                  if (pr.botStatus.codex.unresolved > 0) {
+                    dashboard += `  - Codex: ${pr.botStatus.codex.unresolved}\n`;
+                  }
+                  dashboard += '\n';
+                }
+              }
+            }
+            
+            dashboard += '\n---\n';
+            dashboard += '*This dashboard is automatically generated every 6 hours*\n';
+            
+            // Write to workflow summary
+            await core.summary
+              .addRaw(dashboard)
+              .write();
+            
+            core.info('Dashboard generated successfully');
+            
+            // Output dashboard for potential further use
+            core.setOutput('dashboard', dashboard);
+            core.setOutput('open_prs', pullRequests.length);
+            core.setOutput('prs_with_unresolved', dashboardData.filter(pr => pr.totalUnresolved > 0).length);

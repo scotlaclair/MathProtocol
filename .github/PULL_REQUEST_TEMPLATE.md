@@ -40,6 +40,56 @@ Relates to #
 - 
 - 
 
+## AI Review Checklist
+
+<!-- Automated AI review workflow - DO NOT EDIT THIS SECTION MANUALLY -->
+
+### 🤖 AI Review Workflow Stages
+
+This PR will go through sequential AI reviews:
+
+1. **Gemini Code Assist** - Initial comprehensive review
+2. **GitHub Copilot** - Secondary review focusing on code quality
+3. **Codex** - Security and edge-case analysis
+4. **GitHub Copilot** - Final confirmation review
+
+### 📝 How the AI Review Process Works
+
+**Emoji Reactions:**
+- 👀 (eyes) = Bot comment tracked
+- 👍 (thumbs up) = Feedback addressed/resolved
+- 👎 (thumbs down) = Needs more work
+
+**Resolution Keywords:**
+When you've addressed a bot's feedback, reply to the comment with keywords like:
+- "fixed", "resolved", "addressed", "done", "completed", "updated"
+
+The system will automatically:
+- Add 👍 reaction to the bot comment
+- Post an encouraging message
+- Update the review status
+
+**Trigger Next Review:**
+When all feedback is addressed, comment:
+- "Feedback addressed - ready for next review"
+- "Ready for review"
+- "All addressed"
+
+The orchestrator will automatically trigger the next AI reviewer in the sequence.
+
+**Manual Override:**
+You can also manually mention specific bots:
+- `@gemini-code-assist[bot]` for Gemini
+- `@Copilot` for GitHub Copilot
+- `@chatgpt-codex-connector[bot]` for Codex
+
+### 🎯 AI Review Status
+
+<!-- This section will be auto-updated by the AI Review Orchestrator -->
+*The review status will appear here once the workflow runs*
+
+---
+
 ## Code Review Checklist
 
 <!-- This section tracks review comment resolution -->
