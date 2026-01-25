@@ -92,11 +92,11 @@ This document summarizes the complete implementation of the MathProtocol reposit
 - **setup.py**: Python package setup
   - Installable via pip
   - Proper metadata and classifiers
-  - Python 3.7+ compatibility
+  - Python 3.8+ compatibility
 
 #### CI/CD
 - **.github/workflows/python-tests.yml**: Automated testing workflow
-  - Tests on Python 3.7, 3.8, 3.9, 3.10, 3.11
+  - Tests on Python 3.8, 3.9, 3.10, 3.11, 3.12
   - Runs on push/PR to main/master
   - Includes linting, built-in tests, and examples
   - Proper security permissions

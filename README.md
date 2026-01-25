@@ -2,7 +2,7 @@
 
 A Python-based deterministic LLM control protocol that uses strict mathematical codes to prevent prompt injection and enable LLMs to function as reliable logic engines in software pipelines.
 
-[![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Overview
