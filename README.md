@@ -61,7 +61,7 @@ if protocol.validate_input(input_str):
 python mathprotocol.py
 
 # Or with pytest (if installed)
-pytest mathprotocol.py -v
+pytest test_mathprotocol.py -v
 ```
 
 ## Protocol Specification
