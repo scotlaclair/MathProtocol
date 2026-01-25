@@ -126,13 +126,12 @@ def main():
     for input_str, description in error_inputs:
         response = mock_llm.process(input_str)
         
-        error_msg = "Unknown Error"
-        if response == "1024":
-            error_msg = "Invalid Task Code"
-        elif response == "2048":
-            error_msg = "Invalid Parameter Code"
-        elif response == "4096":
-            error_msg = "Invalid Format"
+        error_map = {
+            str(protocol.ERROR_INVALID_TASK): "Invalid Task Code",
+            str(protocol.ERROR_INVALID_PARAM): "Invalid Parameter Code",
+            str(protocol.ERROR_INVALID_FORMAT): "Invalid Format",
+        }
+        error_msg = error_map.get(response, "Unknown Error")
         
         print(f"Input:  {input_str}")
         print(f"Description: {description}")
