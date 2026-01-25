@@ -67,6 +67,12 @@ jobs:
             core.info(`Processing comment from ${author}`);
             core.info(`Comment body: ${body}`);
             
+            // Skip processing if comment is from github-actions bot to avoid infinite loops
+            if (author === 'github-actions[bot]') {
+              core.info('Skipping github-actions[bot] comment to prevent loops');
+              return;
+            }
+            
             // Check if comment is from a tracked bot
             const isBotComment = BOTS.includes(author);
             
@@ -74,12 +80,22 @@ jobs:
               // Add eyes reaction to bot comments
               core.info('Adding 👀 reaction to bot comment');
               try {
-                await github.rest.reactions.createForIssueComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: commentId,
-                  content: 'eyes'
-                });
+                // Use appropriate API based on event type
+                if (context.eventName === 'issue_comment') {
+                  await github.rest.reactions.createForIssueComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: commentId,
+                    content: 'eyes'
+                  });
+                } else if (context.eventName === 'pull_request_review_comment') {
+                  await github.rest.reactions.createForPullRequestReviewComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: commentId,
+                    content: 'eyes'
+                  });
+                }
               } catch (error) {
                 core.warning(`Failed to add eyes reaction: ${error.message}`);
               }
@@ -101,29 +117,51 @@ jobs:
                   repo: context.repo.repo,
                   issue_number: prNumber
                 });
-                allComments = issueComments;
+                allComments = allComments.concat(issueComments);
               } catch (error) {
-                core.warning(`Failed to fetch comments: ${error.message}`);
+                core.warning(`Failed to fetch issue comments: ${error.message}`);
               }
               
-              // Find recent bot comments (within last 10 comments before this one)
+              try {
+                const { data: reviewComments } = await github.rest.pulls.listReviewComments({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber
+                });
+                allComments = allComments.concat(reviewComments);
+              } catch (error) {
+                core.warning(`Failed to fetch review comments: ${error.message}`);
+              }
+              
+              // Find the most recent bot comment before this one
               const currentCommentIndex = allComments.findIndex(c => c.id === commentId);
               if (currentCommentIndex > 0) {
-                const recentComments = allComments.slice(Math.max(0, currentCommentIndex - 10), currentCommentIndex);
-                
-                // Look for the most recent bot comment
-                for (let i = recentComments.length - 1; i >= 0; i--) {
-                  const recentComment = recentComments[i];
+                // Look backwards through all prior comments for the most recent bot comment
+                for (let i = currentCommentIndex - 1; i >= 0; i--) {
+                  const recentComment = allComments[i];
                   if (BOTS.includes(recentComment.user.login)) {
                     core.info(`Found bot comment ${recentComment.id} - adding 👍 reaction`);
                     try {
                       // Add thumbs up to the bot comment
-                      await github.rest.reactions.createForIssueComment({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        comment_id: recentComment.id,
-                        content: '+1'
-                      });
+                      // Determine if this is an issue comment or PR review comment
+                      const isReviewComment = recentComment.pull_request_review_id !== undefined || 
+                                              recentComment.pull_request_url !== undefined;
+                      
+                      if (isReviewComment) {
+                        await github.rest.reactions.createForPullRequestReviewComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: recentComment.id,
+                          content: '+1'
+                        });
+                      } else {
+                        await github.rest.reactions.createForIssueComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: recentComment.id,
+                          content: '+1'
+                        });
+                      }
                       
                       // Add encouraging reply
                       await github.rest.issues.createComment({
@@ -151,12 +189,26 @@ jobs:
               core.info('Comment contains trigger phrase - re-triggering orchestrator');
               
               try {
+                // Get PR details to determine the correct branch
+                const { data: pr } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber
+                });
+                
+                // Use PR head branch if from same repo, otherwise use base branch
+                const repoFullName = `${context.repo.owner}/${context.repo.repo}`;
+                const isSameRepo = pr.head.repo && pr.head.repo.full_name === repoFullName;
+                const ref = isSameRepo ? pr.head.ref : pr.base.ref;
+                
+                core.info(`Triggering orchestrator on branch: ${ref}`);
+                
                 // Trigger the orchestrator workflow
                 await github.rest.actions.createWorkflowDispatch({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   workflow_id: 'ai-review-orchestrator.yml',
-                  ref: context.payload.repository.default_branch,
+                  ref: ref,
                   inputs: {
                     pr_number: prNumber.toString()
                   }

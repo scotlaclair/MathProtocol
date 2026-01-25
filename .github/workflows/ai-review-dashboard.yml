@@ -33,13 +33,16 @@ jobs:
             
             core.info('Fetching open pull requests...');
             
-            // Get all open PRs
-            const { data: pullRequests } = await github.rest.pulls.list({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              per_page: 100
-            });
+            // Get all open PRs (handle pagination for repositories with >100 PRs)
+            const pullRequests = await github.paginate(
+              github.rest.pulls.list,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                per_page: 100
+              }
+            );
             
             core.info(`Found ${pullRequests.length} open pull requests`);
             
@@ -49,21 +52,27 @@ jobs:
             for (const pr of pullRequests) {
               core.info(`Processing PR #${pr.number}: ${pr.title}`);
               
-              // Get all comments for this PR
-              const { data: issueComments } = await github.rest.issues.listComments({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                per_page: 100
-              });
+              // Get all comments for this PR (issue comments) with pagination
+              const issueComments = await github.paginate(
+                github.rest.issues.listComments,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  per_page: 100
+                }
+              );
               
-              // Get review comments
-              const { data: reviewComments } = await github.rest.pulls.listReviewComments({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: pr.number,
-                per_page: 100
-              });
+              // Get review comments with pagination
+              const reviewComments = await github.paginate(
+                github.rest.pulls.listReviewComments,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                  per_page: 100
+                }
+              );
               
               // Combine all comments
               const allComments = [...issueComments, ...reviewComments];
@@ -86,11 +95,27 @@ jobs:
                     
                     // Check if comment is resolved
                     try {
-                      const { data: reactions } = await github.rest.reactions.listForIssueComment({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        comment_id: comment.id
-                      });
+                      // Determine if this is an issue comment or a PR review comment
+                      const isReviewComment =
+                        Object.prototype.hasOwnProperty.call(comment, 'pull_request_review_id') ||
+                        Object.prototype.hasOwnProperty.call(comment, 'pull_request_url');
+
+                      let reactionsResponse;
+                      if (isReviewComment) {
+                        reactionsResponse = await github.rest.reactions.listForPullRequestReviewComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: comment.id
+                        });
+                      } else {
+                        reactionsResponse = await github.rest.reactions.listForIssueComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: comment.id
+                        });
+                      }
+
+                      const reactions = reactionsResponse.data;
                       
                       const hasThumbsUp = reactions.some(r => r.content === '+1');
                       if (!hasThumbsUp) {

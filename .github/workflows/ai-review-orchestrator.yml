@@ -70,33 +70,55 @@ jobs:
               pull_number: prNumber
             });
             
-            // Get all comments (issue comments)
-            const { data: issueComments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              per_page: 100
-            });
+            // Get all comments (issue comments) with pagination
+            const issueComments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                per_page: 100
+              }
+            );
             
-            // Get all review comments (PR review comments)
-            const { data: reviewComments } = await github.rest.pulls.listReviewComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-              per_page: 100
-            });
+            // Get all review comments (PR review comments) with pagination
+            const reviewComments = await github.paginate(
+              github.rest.pulls.listReviewComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                per_page: 100
+              }
+            );
             
-            // Combine all comments
-            const allComments = [...issueComments, ...reviewComments];
+            // Combine all comments and sort by creation date
+            const allComments = [...issueComments, ...reviewComments].sort((a, b) => 
+              new Date(a.created_at) - new Date(b.created_at)
+            );
             
-            // Track bot reviews
+            // Track bot reviews by stage based on order of appearance
             const botReviews = {
               gemini: { count: 0, unresolved: 0, comments: [] },
               copilot: { count: 0, unresolved: 0, comments: [] },
               codex: { count: 0, unresolved: 0, comments: [] }
             };
             
-            // Analyze comments
+            // Track stage-specific data
+            const stageData = {
+              1: { bot: 'gemini', comments: [], unresolved: 0 },
+              2: { bot: 'copilot', comments: [], unresolved: 0 },
+              3: { bot: 'codex', comments: [], unresolved: 0 },
+              4: { bot: 'copilot', comments: [], unresolved: 0 }
+            };
+            
+            let currentDetectedStage = 0;
+            let geminiReviewed = false;
+            let copilotFirstReview = false;
+            let codexReviewed = false;
+            let copilotSecondReview = false;
+            
+            // Analyze comments and assign to stages
             for (const comment of allComments) {
               const author = comment.user.login;
               
@@ -106,37 +128,74 @@ jobs:
                   botReviews[botKey].count++;
                   botReviews[botKey].comments.push(comment);
                   
+                  // Determine which stage this comment belongs to
+                  let commentStage = 0;
+                  if (botKey === 'gemini' && !geminiReviewed) {
+                    commentStage = 1;
+                    geminiReviewed = true;
+                  } else if (botKey === 'copilot' && geminiReviewed && !copilotFirstReview) {
+                    commentStage = 2;
+                    copilotFirstReview = true;
+                  } else if (botKey === 'codex' && copilotFirstReview && !codexReviewed) {
+                    commentStage = 3;
+                    codexReviewed = true;
+                  } else if (botKey === 'copilot' && codexReviewed && !copilotSecondReview) {
+                    commentStage = 4;
+                    copilotSecondReview = true;
+                  }
+                  
+                  if (commentStage > 0) {
+                    stageData[commentStage].comments.push(comment);
+                    if (commentStage > currentDetectedStage) {
+                      currentDetectedStage = commentStage;
+                    }
+                  }
+                  
                   // Check if comment is resolved (has thumbs up reaction)
-                  const { data: reactions } = await github.rest.reactions.listForIssueComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    comment_id: comment.id
-                  }).catch(() => ({ data: [] }));
+                  let reactionsResponse;
+                  try {
+                    // Check if this is a PR review comment or issue comment
+                    if (comment.pull_request_review_id !== undefined || comment.pull_request_url !== undefined) {
+                      reactionsResponse = await github.rest.reactions.listForPullRequestReviewComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        comment_id: comment.id
+                      });
+                    } else {
+                      reactionsResponse = await github.rest.reactions.listForIssueComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        comment_id: comment.id
+                      });
+                    }
+                  } catch (error) {
+                    core.error(`Failed to list reactions for comment ${comment.id}: ${error}`);
+                    reactionsResponse = { data: [] };
+                  }
+                  const reactions = reactionsResponse.data;
                   
                   const hasThumbsUp = reactions.some(r => r.content === '+1');
                   if (!hasThumbsUp) {
                     botReviews[botKey].unresolved++;
+                    if (commentStage > 0) {
+                      stageData[commentStage].unresolved++;
+                    }
                   }
                 }
               }
             }
             
             core.info(`Bot reviews: ${JSON.stringify(botReviews, null, 2)}`);
+            core.info(`Stage data: ${JSON.stringify(stageData, null, 2)}`);
             
-            // Determine current stage
-            let currentStage = 0;
+            // Determine current stage and unresolved count
+            let currentStage = currentDetectedStage;
             let totalUnresolved = 0;
             
-            // Count which bots have reviewed
-            if (botReviews.gemini.count > 0) currentStage = 1;
-            if (botReviews.copilot.count > 0 && currentStage === 1) currentStage = 2;
-            if (botReviews.codex.count > 0 && currentStage === 2) currentStage = 3;
-            if (botReviews.copilot.count > 1 && currentStage === 3) currentStage = 4;
-            
-            // Calculate total unresolved
-            totalUnresolved = botReviews.gemini.unresolved + 
-                              botReviews.copilot.unresolved + 
-                              botReviews.codex.unresolved;
+            // Calculate unresolved only for current stage
+            if (currentStage > 0 && currentStage <= 4) {
+              totalUnresolved = stageData[currentStage].unresolved;
+            }
             
             // Determine next action
             let nextStage = null;
