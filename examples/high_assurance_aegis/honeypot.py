@@ -9,9 +9,22 @@ Security Control: NIST SI-4 (Information System Monitoring)
 """
 
 from typing import Set
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
 import time
+
+try:
+    from fastapi import Request, Response
+    from starlette.middleware.base import BaseHTTPMiddleware
+    FASTAPI_AVAILABLE = True
+except ImportError:
+    FASTAPI_AVAILABLE = False
+    # Dummy classes for when FastAPI is not installed
+    class BaseHTTPMiddleware:
+        def __init__(self, app):
+            self.app = app
+    class Request:
+        pass
+    class Response:
+        pass
 
 
 class CanaryHoneypotMiddleware(BaseHTTPMiddleware):

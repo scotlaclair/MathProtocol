@@ -1,0 +1,31 @@
+name: 🤖 AI Feature Request
+description: Request a new feature to be implemented by the AI Team
+title: "[FEAT] <Title>"
+labels: ["ai-queue", "enhancement"]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context & Goal
+      description: What are we building? (Copilot reads this)
+      placeholder: "We need to add a rate limiter..."
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security Constraints
+      description: What are the risks? (Gemini reads this)
+      placeholder: "Must be resistant to DDoS..."
+    validations:
+      required: true
+  - type: dropdown
+    id: agent_assignment
+    attributes:
+      label: Primary Agent
+      options:
+        - "Codex (Implementation)"
+        - "Gemini (Analysis)"
+        - "Joint Task Force (Both)"
+    validations:
+      required: true
