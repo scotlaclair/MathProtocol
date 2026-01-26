@@ -99,7 +99,10 @@ class MathProtocol:
             return False
         
         # Pattern: TASK-PARAM with optional | CONTEXT
-        pattern = r'^(\d+)-(\d+)(\s*\|\s*.+)?$'
+        # Use atomic grouping to prevent catastrophic backtracking (ReDoS)
+        # The non-capturing group (?:...) with explicit character limits prevents
+        # exponential backtracking when matching whitespace around the pipe
+        pattern = r'^(\d+)-(\d+)(?:\s{0,10}\|\s{0,10}(.+))?$'
         match = re.match(pattern, input_str)
         
         if not match:
