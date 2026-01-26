@@ -15,7 +15,7 @@ import json
 import hashlib
 import time
 from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 import traceback
@@ -152,7 +152,7 @@ class MerkleAuditChain:
         """
         with self.lock:
             event = {
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'event_type': event_type,
                 'data': data
             }
@@ -215,7 +215,7 @@ class MerkleAuditChain:
             'chain_hash': chain_hash,
             'event_count': len(self.buffer),
             'events': self.buffer.copy(),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
         
         # Write to chain file
@@ -390,13 +390,13 @@ class DeadLetterVault:
             error: Exception that caused failure
         """
         with self.lock:
-            timestamp = datetime.utcnow().isoformat().replace(':', '-')
+            timestamp = datetime.now(timezone.utc).isoformat().replace(':', '-')
             filename = f"dead_letter_{timestamp}_{id(request_data)}.json"
             filepath = self.vault_dir / filename
             
             # Capture full error context
             dead_letter = {
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'request': request_data,
                 'error': {
                     'type': type(error).__name__,

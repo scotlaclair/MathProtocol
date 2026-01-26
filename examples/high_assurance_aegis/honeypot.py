@@ -96,58 +96,70 @@ class CanaryHoneypotMiddleware(BaseHTTPMiddleware):
         if request.method == "POST" and request.url.path == "/process":
             try:
                 body = await request.body()
-                body_str = body.decode('utf-8')
                 
-                # Parse input format: TASK-PARAM | CONTEXT
-                if '-' in body_str:
-                    codes_part = body_str.split('|')[0].strip()
-                    if '-' in codes_part:
-                        parts = codes_part.split('-')
-                        task_code = int(parts[0])
-                        param_code = int(parts[1]) if len(parts) > 1 else 0
-                        
-                        # Check for trap codes
-                        is_trap = False
-                        trap_reason = None
-                        
-                        if task_code in self.TRAP_CODES:
-                            is_trap = True
-                            trap_reason = f"Trap Task Code {task_code}"
-                        
-                        # Sophisticated probe detection: Valid task + Canary param
-                        if param_code in self.CANARY_PARAMS:
-                            is_trap = True
-                            trap_reason = f"Canary Parameter {param_code}"
-                        
-                        if is_trap:
-                            # Log the intrusion attempt
-                            if self.audit_logger:
-                                self.audit_logger.log_event("HONEYPOT_TRIGGERED", {
-                                    'ip': client_ip,
-                                    'task_code': task_code,
-                                    'param_code': param_code,
-                                    'reason': trap_reason,
-                                    'input': body_str[:100]  # First 100 chars
-                                })
+                # Decode with error handling
+                try:
+                    body_str = body.decode('utf-8')
+                except UnicodeDecodeError:
+                    # Invalid encoding - let it through to be caught by protocol validation
+                    pass
+                else:
+                    # Parse input format: TASK-PARAM | CONTEXT
+                    if '-' in body_str:
+                        codes_part = body_str.split('|')[0].strip()
+                        if '-' in codes_part:
+                            parts = codes_part.split('-')
                             
-                            # Track trigger times for rate analysis
-                            if client_ip not in self.trap_triggers:
-                                self.trap_triggers[client_ip] = []
-                            self.trap_triggers[client_ip].append(time.time())
-                            
-                            # Ban the IP permanently
-                            self.banned_ips.add(client_ip)
-                            
-                            print(f"🚨 HONEYPOT TRIGGERED: {client_ip} used {trap_reason}")
-                            
-                            return Response(
-                                content=f"Access Denied - Security Violation Detected",
-                                status_code=403,
-                                headers={
-                                    "X-Honeypot-Triggered": "true",
-                                    "X-Ban-Reason": trap_reason
-                                }
-                            )
+                            # Parse with error handling
+                            try:
+                                task_code = int(parts[0])
+                                param_code = int(parts[1]) if len(parts) > 1 else 0
+                            except (ValueError, IndexError):
+                                # Invalid format - let it through to protocol validation
+                                pass
+                            else:
+                                # Check for trap codes
+                                is_trap = False
+                                trap_reason = None
+                                
+                                if task_code in self.TRAP_CODES:
+                                    is_trap = True
+                                    trap_reason = f"Trap Task Code {task_code}"
+                                
+                                # Sophisticated probe detection: Valid task + Canary param
+                                if param_code in self.CANARY_PARAMS:
+                                    is_trap = True
+                                    trap_reason = f"Canary Parameter {param_code}"
+                                
+                                if is_trap:
+                                    # Log the intrusion attempt
+                                    if self.audit_logger:
+                                        self.audit_logger.log_event("HONEYPOT_TRIGGERED", {
+                                            'ip': client_ip,
+                                            'task_code': task_code,
+                                            'param_code': param_code,
+                                            'reason': trap_reason,
+                                            'input': body_str[:100]  # First 100 chars
+                                        })
+                                    
+                                    # Track trigger times for rate analysis
+                                    if client_ip not in self.trap_triggers:
+                                        self.trap_triggers[client_ip] = []
+                                    self.trap_triggers[client_ip].append(time.time())
+                                    
+                                    # Ban the IP permanently
+                                    self.banned_ips.add(client_ip)
+                                    
+                                    print(f"🚨 HONEYPOT TRIGGERED: {client_ip} used {trap_reason}")
+                                    
+                                    return Response(
+                                        content=f"Access Denied - Security Violation Detected",
+                                        status_code=403,
+                                        headers={
+                                            "X-Honeypot-Triggered": "true",
+                                            "X-Ban-Reason": trap_reason
+                                        }
+                                    )
                 
             except Exception as e:
                 # If parsing fails, let it through (will be caught by protocol validation)
