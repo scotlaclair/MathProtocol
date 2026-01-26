@@ -1,0 +1,13 @@
+# SCOPE: HIGH ASSURANCE AEGIS MODULE
+### 🚨 STRICT MODE ACTIVE
+
+This directory contains the reference implementation for Military-Grade security.
+
+*  Zero Hallucination: If you are unsure of a library function, do not guess. Ask the user.
+*  No Mocking in Prod: Do not suggest using MockLLM inside aegis_core.py. Only use it in tests.
+*  Comments: Every class must reference the specific security control it implements (e.g., "Implements NIST AU-9").
+
+### 📂 File Structure Mandates
+*  Core Logic: Goes in aegis_core.py.
+*  API Routes: Goes in server.py.
+*  Demos: Goes in demo_live_fire.py.
