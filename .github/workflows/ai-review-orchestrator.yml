@@ -9,6 +9,10 @@ permissions:
   pull-requests: write
   issues: write
 
+# Security: pull_request_target is used to allow label management on PRs from forks
+# The workflow does NOT check out PR code or execute any code from the PR
+# It only manages labels and posts comments based on label state
+
 jobs:
   orchestrate:
     name: Orchestrate AI Reviews
@@ -24,7 +28,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const pr = context.payload.pull_request;
-            const labels = pr.labels.map(l => l.name);
+            let labels = pr.labels.map(l => l.name);
             
             // Define the Agent State Machine
             const STATE = {
@@ -42,8 +46,16 @@ jobs:
             
             // Helper: Remove all state labels except the specified one
             async function setOnlyState(newState) {
+              // Refresh labels from API to get current state
+              const { data: currentPR } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number
+              });
+              const currentLabels = currentPR.labels.map(l => l.name);
+              
               for (const state of ALL_STATES) {
-                if (state !== newState && labels.includes(state)) {
+                if (state !== newState && currentLabels.includes(state)) {
                   try {
                     await github.rest.issues.removeLabel({
                       owner: context.repo.owner,
@@ -58,7 +70,7 @@ jobs:
                 }
               }
               
-              if (!labels.includes(newState)) {
+              if (!currentLabels.includes(newState)) {
                 await github.rest.issues.addLabels({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -110,7 +122,7 @@ jobs:
               return;
             }
             
-            // 2. State Machine Logic
+            // 2. State Machine Logic - Use else-if to prevent multiple states executing
             if (context.payload.action === 'labeled' || context.payload.action === 'synchronize') {
               
               // GEMINI REVIEW STATE
@@ -121,25 +133,22 @@ jobs:
                 // Note: Actual Gemini API call would go here
                 // For now, this is a placeholder for manual progression
               }
-              
               // COPILOT REVIEW STATE
-              if (labels.includes(STATE.COPILOT)) {
+              else if (labels.includes(STATE.COPILOT)) {
                 core.info('Copilot review state active');
                 await postReviewSummary('Copilot', '📝 **GitHub Copilot** is reviewing code quality, style, and best practices.\n\n**Next Step:** After Copilot completes review, manually remove `status: copilot-review` label and add `status: codex-security` label to proceed.');
                 
                 // Note: Copilot review integration would go here
               }
-              
               // CODEX SECURITY STATE
-              if (labels.includes(STATE.CODEX)) {
+              else if (labels.includes(STATE.CODEX)) {
                 core.info('Codex security review state active');
                 await postReviewSummary('Codex', '🔒 **Codex** is performing deep security analysis and vulnerability scanning.\n\n**Next Step:** After Codex completes review, manually remove `status: codex-security` label and add `status: ai-approved` label to complete AI review.');
                 
                 // Note: Codex security scan would go here
               }
-              
               // APPROVED STATE
-              if (labels.includes(STATE.APPROVED)) {
+              else if (labels.includes(STATE.APPROVED)) {
                 core.info('All AI reviews complete - PR approved');
                 await postReviewSummary('Final', '✅ **All AI Reviews Complete!**\n\nThe PR has passed:\n- ✅ Gemini architectural review\n- ✅ Copilot code quality review\n- ✅ Codex security analysis\n\n🎉 Ready for human review and merge!');
               }
