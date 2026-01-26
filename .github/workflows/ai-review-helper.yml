@@ -109,25 +109,33 @@ jobs:
             if (hasResolutionKeyword && !isBotComment) {
               core.info('Comment contains resolution keyword - looking for parent bot comment');
               
-              // Get all comments to find the one being replied to
+              // Get all comments to find the one being replied to (with pagination)
               let allComments = [];
               try {
-                const { data: issueComments } = await github.rest.issues.listComments({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: prNumber
-                });
+                const issueComments = await github.paginate(
+                  github.rest.issues.listComments,
+                  {
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: prNumber,
+                    per_page: 100
+                  }
+                );
                 allComments = allComments.concat(issueComments);
               } catch (error) {
                 core.warning(`Failed to fetch issue comments: ${error.message}`);
               }
               
               try {
-                const { data: reviewComments } = await github.rest.pulls.listReviewComments({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  pull_number: prNumber
-                });
+                const reviewComments = await github.paginate(
+                  github.rest.pulls.listReviewComments,
+                  {
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: prNumber,
+                    per_page: 100
+                  }
+                );
                 allComments = allComments.concat(reviewComments);
               } catch (error) {
                 core.warning(`Failed to fetch review comments: ${error.message}`);
