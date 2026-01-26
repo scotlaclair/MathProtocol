@@ -15,12 +15,11 @@ Watch as the system:
 import sys
 import os
 import time
-import json
 
 # Add parent directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from mathprotocol import MathProtocol, MockLLM
+from mathprotocol import MockLLM
 from aegis_core import DataAirlock, MerkleAuditChain, CircuitBreaker, DeadLetterVault
 from honeypot import CanaryHoneypotMiddleware
 

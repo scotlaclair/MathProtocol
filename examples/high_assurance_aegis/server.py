@@ -17,15 +17,19 @@ import os
 # Add parent directory to path to import mathprotocol
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from fastapi import FastAPI, Request, HTTPException, Response
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import uvicorn
+import os
 
 from mathprotocol import MathProtocol, MockLLM
 from aegis_core import DataAirlock, MerkleAuditChain, CircuitBreaker, DeadLetterVault
 from honeypot import CanaryHoneypotMiddleware
+
+# Security: Admin API key from environment variable
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "dev-admin-key-change-in-production")
 
 
 # Request/Response Models
@@ -91,21 +95,18 @@ async def process_request(request: ProcessRequest, http_request: Request):
         ProcessResponse with output and metadata
     """
     client_ip = http_request.client.host if http_request.client else "unknown"
-    request_data = {
-        'ip': client_ip,
-        'input': request.input,
-        'redact_phi': request.redact_phi
-    }
     
-    # Log request
-    audit_chain.log_event("REQUEST", request_data)
+    # Log request metadata only (no raw input to avoid PHI/PII leakage)
+    audit_chain.log_event("REQUEST", {
+        'ip': client_ip,
+        'redact_phi': request.redact_phi
+    })
     
     try:
         # Step 1: Validate Protocol Input
         if not protocol.validate_input(request.input):
             audit_chain.log_event("VALIDATION_FAILED", {
-                'ip': client_ip,
-                'input': request.input
+                'ip': client_ip
             })
             raise HTTPException(status_code=400, detail="Invalid protocol format")
         
@@ -167,19 +168,31 @@ async def process_request(request: ProcessRequest, http_request: Request):
         )
         
     except Exception as e:
-        # Log failure
+        # Generate correlation ID for tracking
+        import uuid
+        correlation_id = str(uuid.uuid4())
+        
+        # Log failure with full details
         audit_chain.log_event("ERROR", {
             'ip': client_ip,
-            'input': request.input[:100],
-            'error': str(e),
+            'correlation_id': correlation_id,
+            'error_type': type(e).__name__,
             'circuit_state': circuit_breaker.get_state()
         })
         
         # Store in Dead Letter Vault
+        request_data = {
+            'ip': client_ip,
+            'redact_phi': request.redact_phi,
+            'correlation_id': correlation_id
+        }
         dead_letter_vault.store(request_data, e)
         
-        # Return error response
-        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+        # Return generic error response (don't leak exception details)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Processing failed. Correlation ID: {correlation_id}"
+        )
 
 
 @app.get("/health")
@@ -229,16 +242,21 @@ async def security_status():
 
 
 @app.post("/security/reset")
-async def reset_security(component: Optional[str] = "all"):
+async def reset_security(http_request: Request, api_key: Optional[str] = None, component: Optional[str] = "all"):
     """
-    Reset security components (admin endpoint).
+    Reset security components (admin endpoint, requires authentication).
     
-    Args:
+    Query parameter:
+        api_key: Admin API key for authentication
         component: Component to reset (circuit_breaker, bans, vault, all)
         
     Returns:
         Reset status
     """
+    # Verify API key using constant-time comparison
+    import hmac
+    if not api_key or not hmac.compare_digest(api_key, ADMIN_API_KEY):
+        raise HTTPException(status_code=403, detail="Unauthorized: Invalid API key")
     reset_actions = []
     
     if component in ["circuit_breaker", "all"]:

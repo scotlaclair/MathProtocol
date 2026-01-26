@@ -19,12 +19,16 @@ class MathProtocol:
     The protocol uses three mathematical sets:
     - Primes (2-97): For TASKS
     - Fibonacci (1-89): For PARAMETERS
-    - Powers of 2 (1-4096): For RESPONSES and CONFIDENCE
+    - Powers of 2 (2-4096): Base codes for RESPONSES and CONFIDENCE
     
     Version 2.1 Feature: Success Bit Validation
-    - All valid responses must have bit 0 set (response code must be odd)
-    - Example: 17-128 (16 English + 1 Success Bit)
-    - Invalid: 16-128 (missing Success Bit)
+    - Success Bit: 1 (LSB) is reserved as the Success Bit
+    - Base response codes are powers of 2 (e.g., 16 for English)
+    - Transmitted response value MUST be base_code + Success Bit (i.e., odd)
+      Example (transmitted): 17-128 where 17 = 16 (English) + 1 (Success Bit)
+      Invalid (missing Success Bit): 16-128
+    - Confidence codes remain pure powers of 2 and are transmitted as-is:
+      128=HighConf, 256=MedConf, 512=LowConf
     """
     
     # Mathematical sets

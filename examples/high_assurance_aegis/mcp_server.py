@@ -106,13 +106,29 @@ class MCPServer:
         Returns:
             Tool result
         """
+        # Basic validation of arguments container
+        if not isinstance(arguments, dict):
+            return {"error": "Invalid arguments: expected object"}
+
         if name == "validate_mathprotocol_input":
+            if "input" not in arguments:
+                return {"error": "Missing required field: input"}
+            if not isinstance(arguments["input"], str):
+                return {"error": "Invalid type for field 'input': expected string"}
             return self._validate_input(arguments["input"])
         
         elif name == "parse_mathprotocol_input":
+            if "input" not in arguments:
+                return {"error": "Missing required field: input"}
+            if not isinstance(arguments["input"], str):
+                return {"error": "Invalid type for field 'input': expected string"}
             return self._parse_input(arguments["input"])
         
         elif name == "process_mathprotocol_request":
+            if "input" not in arguments:
+                return {"error": "Missing required field: input"}
+            if not isinstance(arguments["input"], str):
+                return {"error": "Invalid type for field 'input': expected string"}
             return self._process_request(arguments["input"])
         
         elif name == "get_mathprotocol_tasks":

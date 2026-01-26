@@ -497,7 +497,8 @@ def validate_aegis_security():
     for i in range(3):
         try:
             breaker.call(failing_function)
-        except:
+        except Exception:
+            # Expected failure during circuit breaker test; exception is ignored.
             pass
     
     state = breaker.get_state()

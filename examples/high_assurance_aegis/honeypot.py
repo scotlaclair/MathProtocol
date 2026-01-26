@@ -22,9 +22,23 @@ except ImportError:
         def __init__(self, app):
             self.app = app
     class Request:
+        """Minimal stub Request type used when FastAPI is unavailable."""
         pass
+
     class Response:
-        pass
+        """
+        Minimal stub Response type used when FastAPI is unavailable.
+
+        Accepts arbitrary arguments to remain compatible with the real
+        FastAPI/Starlette Response interface and prevent TypeError when
+        instantiated with keyword arguments like content, status_code,
+        and headers.
+        """
+
+        def __init__(self, *args, **kwargs):
+            self.content = kwargs.get("content")
+            self.status_code = kwargs.get("status_code", 200)
+            self.headers = kwargs.get("headers", {})
 
 
 class CanaryHoneypotMiddleware(BaseHTTPMiddleware):
@@ -104,9 +118,18 @@ class CanaryHoneypotMiddleware(BaseHTTPMiddleware):
                     # Invalid encoding - let it through to be caught by protocol validation
                     pass
                 else:
+                    # Parse JSON body to extract input field
+                    import json
+                    try:
+                        body_json = json.loads(body_str)
+                        input_str = body_json.get('input', body_str)
+                    except (json.JSONDecodeError, AttributeError):
+                        # Not JSON, treat as raw input
+                        input_str = body_str
+                    
                     # Parse input format: TASK-PARAM | CONTEXT
-                    if '-' in body_str:
-                        codes_part = body_str.split('|')[0].strip()
+                    if '-' in input_str:
+                        codes_part = input_str.split('|')[0].strip()
                         if '-' in codes_part:
                             parts = codes_part.split('-')
                             
@@ -139,7 +162,7 @@ class CanaryHoneypotMiddleware(BaseHTTPMiddleware):
                                             'task_code': task_code,
                                             'param_code': param_code,
                                             'reason': trap_reason,
-                                            'input': body_str[:100]  # First 100 chars
+                                            'input': input_str[:100]  # First 100 chars
                                         })
                                     
                                     # Track trigger times for rate analysis
@@ -149,8 +172,6 @@ class CanaryHoneypotMiddleware(BaseHTTPMiddleware):
                                     
                                     # Ban the IP permanently
                                     self.banned_ips.add(client_ip)
-                                    
-                                    print(f"🚨 HONEYPOT TRIGGERED: {client_ip} used {trap_reason}")
                                     
                                     return Response(
                                         content=f"Access Denied - Security Violation Detected",
