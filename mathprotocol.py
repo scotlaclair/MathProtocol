@@ -200,7 +200,7 @@ class MathProtocol:
         payload = parsed["payload"]
         
         # Error codes should be alone (and don't require Success Bit)
-        if len(codes) == 1 and codes[0] >= 1024:
+        if len(codes) == 1 and codes[0] in {1024, 2048, 4096}:
             return payload == ""  # Error codes should have no payload
         
         # Normal responses should have exactly 2 codes (response + confidence)
