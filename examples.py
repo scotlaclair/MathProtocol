@@ -31,21 +31,17 @@ def main():
         parsed = protocol.parse_response(response)
         
         # Interpret the response
-        sentiment = "Unknown"
-        if 2 in parsed['codes']:
-            sentiment = "Positive"
-        elif 4 in parsed['codes']:
-            sentiment = "Negative"
-        elif 8 in parsed['codes']:
-            sentiment = "Neutral"
+        sentiment_map = {2: "Positive", 4: "Negative", 8: "Neutral"}
+        confidence_map = {128: "High", 256: "Medium", 512: "Low"}
         
+        sentiment = "Unknown"
         confidence = "Unknown"
-        if 128 in parsed['codes']:
-            confidence = "High"
-        elif 256 in parsed['codes']:
-            confidence = "Medium"
-        elif 512 in parsed['codes']:
-            confidence = "Low"
+        
+        for code in parsed['codes']:
+            if code in sentiment_map:
+                sentiment = sentiment_map[code]
+            elif code in confidence_map:
+                confidence = confidence_map[code]
         
         print(f"Input:  {input_str}")
         print(f"Output: {response}")
@@ -84,13 +80,13 @@ def main():
         parsed = protocol.parse_response(response)
         
         # Interpret language
+        lang_map = {16: "English", 32: "Spanish", 64: "French"}
         language = "Unknown"
-        if 16 in parsed['codes']:
-            language = "English"
-        elif 32 in parsed['codes']:
-            language = "Spanish"
-        elif 64 in parsed['codes']:
-            language = "French"
+        
+        for code in parsed['codes']:
+            if code in lang_map:
+                language = lang_map[code]
+                break
         
         print(f"Input:  {input_str}")
         print(f"Output: {response}")

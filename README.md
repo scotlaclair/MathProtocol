@@ -197,6 +197,10 @@ Example with OpenAI:
 import openai
 from mathprotocol import MathProtocol
 
+# Instantiate the client once and reuse it
+# Requires openai>=1.0.0 and OPENAI_API_KEY environment variable
+client = openai.OpenAI()
+
 protocol = MathProtocol()
 
 # Read system prompt
@@ -209,7 +213,7 @@ def query_llm(user_input: str) -> str:
         return "4096"  # Invalid format
     
     # Query LLM
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": system_prompt},
