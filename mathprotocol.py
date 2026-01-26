@@ -1,9 +1,11 @@
 """
-MathProtocol: A deterministic LLM control protocol using mathematical codes.
+MathProtocol v2.1: A deterministic LLM control protocol using mathematical codes.
 
 This module implements a strict protocol that forces LLMs to communicate using
 predefined mathematical codes (primes, fibonacci, powers of 2) to prevent
 prompt injection and ensure deterministic behavior.
+
+Version 2.1 adds the mandatory Success Bit requirement for enhanced validation.
 """
 
 import re
@@ -17,13 +19,23 @@ class MathProtocol:
     The protocol uses three mathematical sets:
     - Primes (2-97): For TASKS
     - Fibonacci (1-89): For PARAMETERS
-    - Powers of 2 (2-4096): For RESPONSES and CONFIDENCE
+    - Powers of 2 (2-4096): Base codes for RESPONSES and CONFIDENCE
+    
+    Version 2.1 Feature: Success Bit Validation
+    - Success Bit: 1 (LSB) is reserved as the Success Bit
+    - Base response codes are powers of 2 (e.g., 16 for English)
+    - Transmitted response value MUST be base_code + Success Bit (i.e., odd)
+      Example (transmitted): 17-128 where 17 = 16 (English) + 1 (Success Bit)
+      Invalid (missing Success Bit): 16-128
+    - Confidence codes remain pure powers of 2 and are transmitted as-is:
+      128=HighConf, 256=MedConf, 512=LowConf
     """
     
     # Mathematical sets
     PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97}
     FIBONACCI = {1, 2, 3, 5, 8, 13, 21, 34, 55, 89}
-    POWERS_OF_2 = {2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096}
+    # v2.1: Added 1 (Success Bit) to powers of 2
+    POWERS_OF_2 = {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096}
     
     # Task mappings
     TASKS = {
@@ -87,7 +99,10 @@ class MathProtocol:
             return False
         
         # Pattern: TASK-PARAM with optional | CONTEXT
-        pattern = r'^(\d+)-(\d+)(\s*\|\s*.+)?$'
+        # Use atomic grouping to prevent catastrophic backtracking (ReDoS)
+        # The non-capturing group (?:...) with explicit character limits prevents
+        # exponential backtracking when matching whitespace around the pipe
+        pattern = r'^(\d+)-(\d+)(?:\s{0,10}\|\s{0,10}(.+))?$'
         match = re.match(pattern, input_str)
         
         if not match:
@@ -168,6 +183,18 @@ class MathProtocol:
         """
         Validate if a response matches protocol rules for the given task.
         
+        Version 2.1: Enforces Success Bit requirement.
+        The first response code MUST have bit 0 set (be odd).
+        
+        Valid examples:
+        - 17-128 (16 English + 1 Success Bit)
+        - 3-128 (2 Positive + 1 Success Bit)
+        - 1-128 (0 + 1 Success Bit only)
+        
+        Invalid examples:
+        - 16-128 (missing Success Bit)
+        - 2-128 (missing Success Bit)
+        
         Args:
             response_str: The response string to validate
             task_code: The task code that generated this response
@@ -179,30 +206,33 @@ class MathProtocol:
         codes = parsed["codes"]
         payload = parsed["payload"]
         
-        # Error codes should be alone
-        if len(codes) == 1 and codes[0] in {self.ERROR_INVALID_TASK, 
-                                              self.ERROR_INVALID_PARAM, 
-                                              self.ERROR_INVALID_FORMAT}:
+        # Error codes should be alone (and don't require Success Bit)
+        if len(codes) == 1 and codes[0] in {1024, 2048, 4096}:
             return payload == ""  # Error codes should have no payload
         
         # Normal responses should have exactly 2 codes (response + confidence)
         if len(codes) != 2:
             return False
         
-        # All codes must be powers of 2
-        if not all(code in self.POWERS_OF_2 for code in codes):
+        response_val = codes[0]
+        confidence_val = codes[1]
+        
+        # v2.1: Check Success Bit (bit 0 must be set - number must be odd)
+        if not (response_val & 1):
+            return False  # Missing Success Bit!
+        
+        # Remove Success Bit to validate the base code
+        base_code = response_val - 1
+        
+        # Base code must be a valid power of 2 or 0
+        # Valid bases: 0 (just success), 2, 4, 8, 16, 32, 64
+        valid_bases = {0, 2, 4, 8, 16, 32, 64}
+        if base_code not in valid_bases:
             return False
         
-        # Valid confidence codes
+        # Confidence code must be valid
         CONFIDENCE_CODES = {128, 256, 512}
-        
-        # Second code must be a valid confidence code
-        if codes[1] not in CONFIDENCE_CODES:
-            return False
-        
-        # First code must be a non-confidence response code
-        VALID_RESPONSE_CODES = {2, 4, 8, 16, 32, 64}
-        if codes[0] not in VALID_RESPONSE_CODES:
+        if confidence_val not in CONFIDENCE_CODES:
             return False
         
         # Classification tasks must NOT have payload
@@ -277,18 +307,22 @@ class MockLLM:
         return self._generate_response(task, param, context)
     
     def _generate_response(self, task: int, param: int, context: str) -> str:
-        """Generate a mock response based on task type."""
+        """
+        Generate a mock response based on task type.
+        
+        Version 2.1: All responses include the Success Bit (+1 to base code).
+        """
         
         # Task 2: Sentiment Analysis
         if task == 2:
             # Simple keyword-based sentiment
             context_lower = context.lower()
             if any(word in context_lower for word in ['good', 'great', 'amazing', 'excellent', 'love']):
-                return "2-128"  # Positive, High Confidence
+                return "3-128"  # 2 Positive + 1 Success Bit
             elif any(word in context_lower for word in ['bad', 'terrible', 'awful', 'hate', 'worst']):
-                return "4-128"  # Negative, High Confidence
+                return "5-128"  # 4 Negative + 1 Success Bit
             else:
-                return "8-128"  # Neutral, High Confidence
+                return "9-128"  # 8 Neutral + 1 Success Bit
         
         # Task 3: Summarization
         elif task == 3:
@@ -299,7 +333,7 @@ class MockLLM:
                 summary = ' '.join(words[:10]) + "..."
             else:  # Detailed
                 summary = ' '.join(words[:15]) + "..."
-            return f"16-128 | {summary}"
+            return f"17-128 | {summary}"  # 16 English + 1 Success Bit
         
         # Task 5: Language Detection
         elif task == 5:
@@ -309,11 +343,11 @@ class MockLLM:
             french_words = ['bonjour', 'monde', 'merci', 'oui', 'non']
             
             if any(word in context_lower for word in spanish_words):
-                return "32-128"  # Spanish, High Confidence
+                return "33-128"  # 32 Spanish + 1 Success Bit
             elif any(word in context_lower for word in french_words):
-                return "64-128"  # French, High Confidence
+                return "65-128"  # 64 French + 1 Success Bit
             else:
-                return "16-128"  # English, High Confidence
+                return "17-128"  # 16 English + 1 Success Bit
         
         # Task 7: Entity Extraction
         elif task == 7:
@@ -324,65 +358,65 @@ class MockLLM:
                 result = ', '.join(entities[:5])
             else:
                 result = ' '.join(entities[:3])
-            return f"16-128 | {result}"
+            return f"17-128 | {result}"  # 16 English + 1 Success Bit
         
         # Task 11: Q&A
         elif task == 11:
             # Simple mock answers
             if 'capital' in context.lower() and 'france' in context.lower():
-                return "16-128 | Paris"
+                return "17-128 | Paris"  # 16 English + 1 Success Bit
             elif 'color' in context.lower() and 'sky' in context.lower():
-                return "16-128 | Blue"
+                return "17-128 | Blue"  # 16 English + 1 Success Bit
             else:
-                return "16-128 | Answer not available"
+                return "17-128 | Answer not available"  # 16 English + 1 Success Bit
         
         # Task 13: Classification
         elif task == 13:
             # Generic classification as neutral
-            return "8-128"
+            return "9-128"  # 8 Neutral + 1 Success Bit
         
         # Task 17: Translation
         elif task == 17:
             # Simple mock translations
             context_lower = context.lower()
             if 'hello' in context_lower or 'hi' in context_lower:
-                return "32-128 | Hola"
+                return "33-128 | Hola"  # 32 Spanish + 1 Success Bit
             elif 'world' in context_lower:
-                return "32-128 | Mundo"
+                return "33-128 | Mundo"  # 32 Spanish + 1 Success Bit
             elif 'thank' in context_lower:
-                return "32-128 | Gracias"
+                return "33-128 | Gracias"  # 32 Spanish + 1 Success Bit
             else:
-                return "32-128 | [traducción]"
+                return "33-128 | [traducción]"  # 32 Spanish + 1 Success Bit
         
         # Task 19: Content Moderation
         elif task == 19:
             # Simple safety check
             unsafe_words = ['violence', 'hate', 'explicit']
             if any(word in context.lower() for word in unsafe_words):
-                return "4-128"  # Negative (unsafe)
+                return "5-128"  # 4 Negative (unsafe) + 1 Success Bit
             else:
-                return "8-128"  # Neutral (safe)
+                return "9-128"  # 8 Neutral (safe) + 1 Success Bit
         
         # Task 23: Keyword Extraction
         elif task == 23:
             # Extract first few words as keywords
             words = [w.strip('.,!?') for w in context.split()]
             keywords = ', '.join(words[:5])
-            return f"16-128 | {keywords}"
+            return f"17-128 | {keywords}"  # 16 English + 1 Success Bit
         
         # Task 29: Readability
         elif task == 29:
             # Simple readability: positive if short words
             avg_word_length = sum(len(w) for w in context.split()) / max(len(context.split()), 1)
             if avg_word_length < 5:
-                return "2-128"  # Positive (easy to read)
+                return "3-128"  # 2 Positive (easy to read) + 1 Success Bit
             elif avg_word_length > 8:
-                return "4-128"  # Negative (hard to read)
+                return "5-128"  # 4 Negative (hard to read) + 1 Success Bit
             else:
-                return "8-128"  # Neutral (medium)
+                return "9-128"  # 8 Neutral (medium) + 1 Success Bit
         
         # Default fallback
-        return "8-128"
+        return "9-128"  # 8 Neutral + 1 Success Bit
 
 
 def run_tests():
@@ -465,7 +499,8 @@ def run_tests():
     response = mock_llm.process("2-1 | This product is amazing!")
     print(f"Input: 2-1 | This product is amazing!")
     print(f"Output: {response}")
-    valid_sentiment = protocol.parse_response(response)['codes'] == [2, 128]
+    # v2.1: Expecting 3-128 (2 Positive + 1 Success Bit)
+    valid_sentiment = protocol.parse_response(response)['codes'] == [3, 128]
     print(f"Result: {'PASS' if valid_sentiment else 'FAIL'}")
     if valid_sentiment:
         passed_count += 1
@@ -523,9 +558,10 @@ def run_tests():
     print(f"Input: 5-1 | Bonjour le monde")
     print(f"Output: {response}")
     parsed = protocol.parse_response(response)
+    # v2.1: Expecting 65-128 (64 French + 1 Success Bit)
     valid_langdetect = (len(parsed['codes']) == 2 and 
                        parsed['payload'] == "" and
-                       64 in parsed['codes'])  # French
+                       65 in parsed['codes'])  # 64 French + 1 Success Bit
     print(f"Result: {'PASS' if valid_langdetect else 'FAIL'}")
     if valid_langdetect:
         passed_count += 1
@@ -533,13 +569,17 @@ def run_tests():
     # Test 11: Response Validation
     test_count += 1
     print(f"\nTest {test_count}: Response Validation")
+    # v2.1: All responses must have Success Bit (odd numbers)
     # Classification task should not have payload
-    valid1 = protocol.validate_response("2-128", 2)  # Valid
-    valid2 = not protocol.validate_response("2-128 | Text", 2)  # Invalid (has payload)
+    valid1 = protocol.validate_response("3-128", 2)  # Valid (2+1 Success Bit)
+    valid2 = not protocol.validate_response("3-128 | Text", 2)  # Invalid (has payload)
     # Generative task should have payload
-    valid3 = protocol.validate_response("16-128 | Text", 3)  # Valid
-    valid4 = not protocol.validate_response("16-128", 3)  # Invalid (no payload)
-    all_validation_correct = valid1 and valid2 and valid3 and valid4
+    valid3 = protocol.validate_response("17-128 | Text", 3)  # Valid (16+1 Success Bit)
+    valid4 = not protocol.validate_response("17-128", 3)  # Invalid (no payload)
+    # Missing Success Bit should fail
+    valid5 = not protocol.validate_response("2-128", 2)  # Invalid (missing Success Bit)
+    valid6 = not protocol.validate_response("16-128 | Text", 3)  # Invalid (missing Success Bit)
+    all_validation_correct = valid1 and valid2 and valid3 and valid4 and valid5 and valid6
     print(f"Result: {'PASS' if all_validation_correct else 'FAIL'}")
     if all_validation_correct:
         passed_count += 1

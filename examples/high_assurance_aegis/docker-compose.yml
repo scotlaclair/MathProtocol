@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  # The Aegis API (Your Python Code)
+  aegis-api:
+    build: 
+       context: ../../
+       dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - MATH_API_KEY=dev-key
+    networks:
+      - secure-net
+  
+  # The API Gateway (Nginx as Reverse Proxy/WAF)
+  gateway:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - aegis-api
+    networks:
+      - secure-net
+
+networks:
+  secure-net:
+    driver: bridge

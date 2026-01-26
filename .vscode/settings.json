@@ -1,0 +1,18 @@
+{
+    "github.copilot.editor.enableAutoCompletions": true,
+    "github.copilot.advanced.messages": [
+        "always-refer-to-context"
+    ],
+    "python.formatting.provider": "black",
+    "editor.formatOnSave": true,
+    "python.analysis.typeCheckingMode": "strict",
+    "todo-tree.tree.scanMode": "workspace",
+    "todo-tree.regex.regex": "(//|#|<!--|;|/\\*|^|^[ \\t]*(-|\\d+.))\\s*($TAGS)",
+    "todo-tree.general.tags": [
+        "BUG",
+        "HACK",
+        "FIXME",
+        "SECURITY",
+        "AUDIT"
+    ]
+}

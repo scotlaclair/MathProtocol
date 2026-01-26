@@ -53,17 +53,17 @@ class TestMathProtocol:
     
     def test_response_validation_classification(self):
         """Test that classification tasks cannot have payloads."""
-        # Valid: no payload
-        assert self.protocol.validate_response("2-128", 2)
+        # Valid: no payload (v2.1 with Success Bit: 2+1=3)
+        assert self.protocol.validate_response("3-128", 2)
         # Invalid: has payload
-        assert not self.protocol.validate_response("2-128 | Text", 2)
+        assert not self.protocol.validate_response("3-128 | Text", 2)
     
     def test_response_validation_generative(self):
         """Test that generative tasks must have payloads."""
-        # Valid: has payload
-        assert self.protocol.validate_response("16-128 | Text", 3)
+        # Valid: has payload (v2.1 with Success Bit: 16+1=17)
+        assert self.protocol.validate_response("17-128 | Text", 3)
         # Invalid: no payload
-        assert not self.protocol.validate_response("16-128", 3)
+        assert not self.protocol.validate_response("17-128", 3)
     
     def test_task_name_lookup(self):
         """Test task name lookup."""
@@ -95,12 +95,14 @@ class TestMockLLM:
     def test_sentiment_positive(self):
         """Test positive sentiment detection."""
         response = self.mock_llm.process("2-1 | This product is amazing!")
-        assert response == "2-128"
+        # v2.1: 2 (Positive) + 1 (Success Bit) = 3
+        assert response == "3-128"
     
     def test_sentiment_negative(self):
         """Test negative sentiment detection."""
         response = self.mock_llm.process("2-1 | This product is terrible!")
-        assert response == "4-128"
+        # v2.1: 4 (Negative) + 1 (Success Bit) = 5
+        assert response == "5-128"
     
     def test_translation(self):
         """Test translation task."""
@@ -108,13 +110,15 @@ class TestMockLLM:
         parsed = self.protocol.parse_response(response)
         assert len(parsed['codes']) >= 2
         assert parsed['payload'] != ""
-        assert 32 in parsed['codes']  # Spanish
+        # v2.1: 32 (Spanish) + 1 (Success Bit) = 33
+        assert 33 in parsed['codes']  # Spanish with Success Bit
     
     def test_language_detection_french(self):
         """Test French language detection."""
         response = self.mock_llm.process("5-1 | Bonjour le monde")
         parsed = self.protocol.parse_response(response)
-        assert 64 in parsed['codes']  # French
+        # v2.1: 64 (French) + 1 (Success Bit) = 65
+        assert 65 in parsed['codes']  # French with Success Bit
         assert parsed['payload'] == ""  # Classification task
     
     def test_qa(self):
