@@ -217,22 +217,28 @@ async def health_check():
 
 
 @app.get("/security/status")
-async def security_status():
+async def security_status(http_request: Request, api_key: Optional[str] = None):
     """
-    Get detailed security status.
+    Security status endpoint (requires authentication).
+    
+    Query parameter:
+        api_key: Admin API key for authentication
     
     Returns:
         Comprehensive security metrics
     """
+    # Verify API key using constant-time comparison
+    import hmac
+    if not api_key or not hmac.compare_digest(api_key, ADMIN_API_KEY):
+        raise HTTPException(status_code=403, detail="Unauthorized: Invalid API key")
+    
     return {
         'circuit_breaker': circuit_breaker.get_state(),
         'banned_ips': {
-            'count': len(banned_ips),
-            'list': list(banned_ips)
+            'count': len(banned_ips)
         },
         'dead_letters': {
-            'count': len(dead_letter_vault.list_failed()),
-            'files': dead_letter_vault.list_failed()
+            'count': len(dead_letter_vault.list_failed())
         },
         'audit_chain': {
             'valid': audit_chain.verify_chain(),
