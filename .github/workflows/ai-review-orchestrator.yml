@@ -1,0 +1,333 @@
+name: AI Review Orchestrator
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to orchestrate'
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  orchestrate:
+    name: Orchestrate AI Reviews
+    runs-on: ubuntu-latest
+    # Only run on PRs or PR comments
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request)
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Orchestrate Reviews
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Bot usernames to track
+            const BOTS = {
+              gemini: 'gemini-code-assist[bot]',
+              copilot: 'Copilot',
+              codex: 'chatgpt-codex-connector[bot]'
+            };
+            
+            // Review stages in order
+            const REVIEW_STAGES = [
+              { bot: 'gemini', name: 'Gemini Code Assist', stage: 1, description: 'Initial Review' },
+              { bot: 'copilot', name: 'GitHub Copilot', stage: 2, description: 'Secondary Review' },
+              { bot: 'codex', name: 'Codex', stage: 3, description: 'Security & Edge Cases' },
+              { bot: 'copilot', name: 'GitHub Copilot', stage: 4, description: 'Final Confirmation' }
+            ];
+            
+            // Get PR number
+            let prNumber;
+            if (context.eventName === 'workflow_dispatch') {
+              prNumber = context.payload.inputs.pr_number;
+            } else if (context.eventName === 'pull_request') {
+              prNumber = context.payload.pull_request.number;
+            } else if (context.eventName === 'issue_comment') {
+              prNumber = context.payload.issue.number;
+            }
+            
+            core.info(`Processing PR #${prNumber}`);
+            
+            // Get PR details
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            // Get all comments (issue comments) with pagination
+            const issueComments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                per_page: 100
+              }
+            );
+            
+            // Get all review comments (PR review comments) with pagination
+            const reviewComments = await github.paginate(
+              github.rest.pulls.listReviewComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                per_page: 100
+              }
+            );
+            
+            // Combine all comments and sort by creation date
+            const allComments = [...issueComments, ...reviewComments].sort((a, b) => 
+              new Date(a.created_at) - new Date(b.created_at)
+            );
+            
+            // Track bot reviews by stage based on order of appearance
+            const botReviews = {
+              gemini: { count: 0, unresolved: 0, comments: [] },
+              copilot: { count: 0, unresolved: 0, comments: [] },
+              codex: { count: 0, unresolved: 0, comments: [] }
+            };
+            
+            // Track stage-specific data
+            const stageData = {
+              1: { bot: 'gemini', comments: [], unresolved: 0 },
+              2: { bot: 'copilot', comments: [], unresolved: 0 },
+              3: { bot: 'codex', comments: [], unresolved: 0 },
+              4: { bot: 'copilot', comments: [], unresolved: 0 }
+            };
+            
+            let currentDetectedStage = 0;
+            
+            // Analyze comments and assign to stages
+            for (const comment of allComments) {
+              const author = comment.user.login;
+              
+              // Check if comment is from a tracked bot
+              for (const [botKey, botUsername] of Object.entries(BOTS)) {
+                if (author === botUsername) {
+                  botReviews[botKey].count++;
+                  botReviews[botKey].comments.push(comment);
+                  
+                  // Determine which stage this comment belongs to based on current progression
+                  let commentStage = 0;
+                  
+                  // Determine the current active stage based on what we've seen so far
+                  if (botKey === 'gemini' && currentDetectedStage === 0) {
+                    commentStage = 1;
+                    currentDetectedStage = 1;
+                  } else if (botKey === 'gemini' && currentDetectedStage === 1) {
+                    // Additional Gemini comments in stage 1
+                    commentStage = 1;
+                  } else if (botKey === 'copilot' && currentDetectedStage === 1) {
+                    commentStage = 2;
+                    currentDetectedStage = 2;
+                  } else if (botKey === 'copilot' && currentDetectedStage === 2) {
+                    // Additional Copilot comments in stage 2
+                    commentStage = 2;
+                  } else if (botKey === 'codex' && currentDetectedStage === 2) {
+                    commentStage = 3;
+                    currentDetectedStage = 3;
+                  } else if (botKey === 'codex' && currentDetectedStage === 3) {
+                    // Additional Codex comments in stage 3
+                    commentStage = 3;
+                  } else if (botKey === 'copilot' && currentDetectedStage === 3) {
+                    commentStage = 4;
+                    currentDetectedStage = 4;
+                  } else if (botKey === 'copilot' && currentDetectedStage === 4) {
+                    // Additional Copilot comments in stage 4
+                    commentStage = 4;
+                  }
+                  
+                  if (commentStage > 0) {
+                    stageData[commentStage].comments.push(comment);
+                  }
+                  
+                  // Check if comment is resolved (has thumbs up reaction)
+                  let reactionsResponse;
+                  try {
+                    // Check if this is a PR review comment or issue comment
+                    if (comment.pull_request_review_id !== undefined || comment.pull_request_url !== undefined) {
+                      reactionsResponse = await github.rest.reactions.listForPullRequestReviewComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        comment_id: comment.id
+                      });
+                    } else {
+                      reactionsResponse = await github.rest.reactions.listForIssueComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        comment_id: comment.id
+                      });
+                    }
+                  } catch (error) {
+                    core.error(`Failed to list reactions for comment ${comment.id}: ${error}`);
+                    reactionsResponse = { data: [] };
+                  }
+                  const reactions = reactionsResponse.data;
+                  
+                  const hasThumbsUp = reactions.some(r => r.content === '+1');
+                  if (!hasThumbsUp) {
+                    botReviews[botKey].unresolved++;
+                    if (commentStage > 0) {
+                      stageData[commentStage].unresolved++;
+                    }
+                  }
+                }
+              }
+            }
+            
+            core.info(`Bot reviews: ${JSON.stringify(botReviews, null, 2)}`);
+            core.info(`Stage data: ${JSON.stringify(stageData, null, 2)}`);
+            
+            // Determine current stage and unresolved count
+            let currentStage = currentDetectedStage;
+            let totalUnresolved = 0;
+            
+            // Calculate unresolved only for current stage
+            if (currentStage > 0 && currentStage <= 4) {
+              totalUnresolved = stageData[currentStage].unresolved;
+            }
+            
+            // Determine next action
+            let nextStage = null;
+            let readyForNext = totalUnresolved === 0;
+            
+            if (readyForNext && currentStage < 4) {
+              nextStage = REVIEW_STAGES[currentStage];
+            }
+            
+            core.info(`Current stage: ${currentStage}, Next stage: ${nextStage?.stage || 'None'}`);
+            core.info(`Total unresolved: ${totalUnresolved}, Ready for next: ${readyForNext}`);
+            
+            // Build status table
+            let statusTable = '## 🤖 AI Review Status\n\n';
+            statusTable += '| Stage | Bot | Status | Comments | Unresolved |\n';
+            statusTable += '|-------|-----|--------|----------|------------|\n';
+            
+            for (const stage of REVIEW_STAGES) {
+              const botKey = stage.bot;
+              const reviews = botReviews[botKey];
+              let status = '⏳ Pending';
+              
+              if (stage.stage < currentStage) {
+                status = '✅ Complete';
+              } else if (stage.stage === currentStage) {
+                status = reviews.unresolved > 0 ? '🔄 In Progress' : '✅ Complete';
+              }
+              
+              if (stage.stage === currentStage + 1 && readyForNext) {
+                status = '🚀 Ready to Start';
+              }
+              
+              statusTable += `| ${stage.stage} | ${stage.name} (${stage.description}) | ${status} | ${reviews.count} | ${reviews.unresolved} |\n`;
+            }
+            
+            statusTable += '\n';
+            
+            if (totalUnresolved > 0) {
+              statusTable += `⚠️ **${totalUnresolved} unresolved comment(s)** - Address feedback to proceed\n\n`;
+              statusTable += '💡 *Add 👍 reaction to comments when addressed or reply with resolution keywords (fixed, resolved, addressed, done, completed, updated)*\n';
+            } else if (nextStage) {
+              statusTable += `✅ All feedback addressed! Next: **${nextStage.name}** review\n\n`;
+              statusTable += `💬 Comment "Feedback addressed - ready for next review" to trigger next stage\n`;
+            } else if (currentStage === 4) {
+              statusTable += '🎉 All AI reviews complete! PR is ready for final human review.\n';
+            }
+            
+            statusTable += '\n---\n*Last updated: ' + new Date().toISOString() + '*';
+            
+            // Update or create status comment
+            const statusMarker = '<!-- AI_REVIEW_STATUS -->';
+            const existingComments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber
+            });
+            
+            const statusComment = existingComments.data.find(c => 
+              c.user.login === 'github-actions[bot]' && c.body.includes(statusMarker)
+            );
+            
+            const commentBody = statusMarker + '\n' + statusTable;
+            
+            if (statusComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: statusComment.id,
+                body: commentBody
+              });
+              core.info('Updated existing status comment');
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: commentBody
+              });
+              core.info('Created new status comment');
+            }
+            
+            // Create workflow summary
+            await core.summary
+              .addHeading('AI Review Orchestration Summary')
+              .addTable([
+                [
+                  { data: 'Stage', header: true },
+                  { data: 'Bot', header: true },
+                  { data: 'Status', header: true },
+                  { data: 'Comments', header: true },
+                  { data: 'Unresolved', header: true }
+                ],
+                ...REVIEW_STAGES.map(stage => {
+                  const botKey = stage.bot;
+                  const reviews = botReviews[botKey];
+                  let status = '⏳ Pending';
+                  
+                  if (stage.stage < currentStage) {
+                    status = '✅ Complete';
+                  } else if (stage.stage === currentStage) {
+                    status = reviews.unresolved > 0 ? '🔄 In Progress' : '✅ Complete';
+                  }
+                  
+                  if (stage.stage === currentStage + 1 && readyForNext) {
+                    status = '🚀 Ready to Start';
+                  }
+                  
+                  return [
+                    stage.stage.toString(),
+                    `${stage.name} (${stage.description})`,
+                    status,
+                    reviews.count.toString(),
+                    reviews.unresolved.toString()
+                  ];
+                })
+              ])
+              .addRaw(`\n**Total Unresolved:** ${totalUnresolved}`)
+              .addRaw(`\n**Current Stage:** ${currentStage}`)
+              .addRaw(`\n**Ready for Next:** ${readyForNext ? 'Yes' : 'No'}`)
+              .write();
+            
+            core.info('Orchestration complete');
+            
+            // Set outputs for potential next steps
+            core.setOutput('current_stage', currentStage);
+            core.setOutput('next_stage', nextStage?.stage || 'none');
+            core.setOutput('unresolved_count', totalUnresolved);
+            core.setOutput('ready_for_next', readyForNext);

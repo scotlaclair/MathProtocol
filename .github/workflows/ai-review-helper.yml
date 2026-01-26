@@ -1,0 +1,239 @@
+name: AI Review Helper
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: write
+
+jobs:
+  helper:
+    name: AI Review Helper
+    runs-on: ubuntu-latest
+    # Only run on PR comments
+    if: github.event.issue.pull_request || github.event.pull_request
+    
+    steps:
+      - name: Process Comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Bot usernames to track
+            const BOTS = [
+              'gemini-code-assist[bot]',
+              'Copilot',
+              'chatgpt-codex-connector[bot]'
+            ];
+            
+            // Resolution keywords
+            const RESOLUTION_KEYWORDS = [
+              'fixed', 'resolved', 'addressed', 'done', 
+              'completed', 'updated', 'implemented'
+            ];
+            
+            // Trigger phrases for next review
+            const TRIGGER_PHRASES = [
+              'ready for review',
+              'ready for next review',
+              'feedback addressed',
+              'all addressed',
+              'comments addressed',
+              'ready to proceed'
+            ];
+            
+            let comment, commentId, prNumber;
+            
+            // Get comment details based on event type
+            if (context.eventName === 'issue_comment') {
+              comment = context.payload.comment;
+              commentId = comment.id;
+              prNumber = context.payload.issue.number;
+            } else if (context.eventName === 'pull_request_review_comment') {
+              comment = context.payload.comment;
+              commentId = comment.id;
+              prNumber = context.payload.pull_request.number;
+            }
+            
+            const author = comment.user.login;
+            const body = comment.body.toLowerCase();
+            
+            core.info(`Processing comment from ${author}`);
+            core.info(`Comment body: ${body}`);
+            
+            // Skip processing if comment is from github-actions bot to avoid infinite loops
+            if (author === 'github-actions[bot]') {
+              core.info('Skipping github-actions[bot] comment to prevent loops');
+              return;
+            }
+            
+            // Check if comment is from a tracked bot
+            const isBotComment = BOTS.includes(author);
+            
+            if (isBotComment) {
+              // Add eyes reaction to bot comments
+              core.info('Adding 👀 reaction to bot comment');
+              try {
+                // Use appropriate API based on event type
+                if (context.eventName === 'issue_comment') {
+                  await github.rest.reactions.createForIssueComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: commentId,
+                    content: 'eyes'
+                  });
+                } else if (context.eventName === 'pull_request_review_comment') {
+                  await github.rest.reactions.createForPullRequestReviewComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: commentId,
+                    content: 'eyes'
+                  });
+                }
+              } catch (error) {
+                core.warning(`Failed to add eyes reaction: ${error.message}`);
+              }
+            }
+            
+            // Check if comment contains resolution keywords
+            const hasResolutionKeyword = RESOLUTION_KEYWORDS.some(keyword => 
+              body.includes(keyword)
+            );
+            
+            if (hasResolutionKeyword && !isBotComment) {
+              core.info('Comment contains resolution keyword - looking for parent bot comment');
+              
+              // Get all comments to find the one being replied to (with pagination)
+              let allComments = [];
+              try {
+                const issueComments = await github.paginate(
+                  github.rest.issues.listComments,
+                  {
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: prNumber,
+                    per_page: 100
+                  }
+                );
+                allComments = allComments.concat(issueComments);
+              } catch (error) {
+                core.warning(`Failed to fetch issue comments: ${error.message}`);
+              }
+              
+              try {
+                const reviewComments = await github.paginate(
+                  github.rest.pulls.listReviewComments,
+                  {
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: prNumber,
+                    per_page: 100
+                  }
+                );
+                allComments = allComments.concat(reviewComments);
+              } catch (error) {
+                core.warning(`Failed to fetch review comments: ${error.message}`);
+              }
+              
+              // Find the most recent bot comment before this one
+              const currentCommentIndex = allComments.findIndex(c => c.id === commentId);
+              if (currentCommentIndex > 0) {
+                // Look backwards through all prior comments for the most recent bot comment
+                for (let i = currentCommentIndex - 1; i >= 0; i--) {
+                  const recentComment = allComments[i];
+                  if (BOTS.includes(recentComment.user.login)) {
+                    core.info(`Found bot comment ${recentComment.id} - adding 👍 reaction`);
+                    try {
+                      // Add thumbs up to the bot comment
+                      // Determine if this is an issue comment or PR review comment
+                      const isReviewComment = recentComment.pull_request_review_id !== undefined || 
+                                              recentComment.pull_request_url !== undefined;
+                      
+                      if (isReviewComment) {
+                        await github.rest.reactions.createForPullRequestReviewComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: recentComment.id,
+                          content: '+1'
+                        });
+                      } else {
+                        await github.rest.reactions.createForIssueComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: recentComment.id,
+                          content: '+1'
+                        });
+                      }
+                      
+                      // Add encouraging reply
+                      await github.rest.issues.createComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: prNumber,
+                        body: `✅ Great! Feedback addressed. Keep up the good work! 💪`
+                      });
+                      
+                      break; // Only react to the most recent bot comment
+                    } catch (error) {
+                      core.warning(`Failed to add reaction: ${error.message}`);
+                    }
+                  }
+                }
+              }
+            }
+            
+            // Check if comment contains trigger phrases
+            const hasTriggerPhrase = TRIGGER_PHRASES.some(phrase => 
+              body.includes(phrase)
+            );
+            
+            if (hasTriggerPhrase && !isBotComment) {
+              core.info('Comment contains trigger phrase - re-triggering orchestrator');
+              
+              try {
+                // Get PR details to determine the correct branch
+                const { data: pr } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber
+                });
+                
+                // Use PR head branch if from same repo, otherwise use base branch
+                const repoFullName = `${context.repo.owner}/${context.repo.repo}`;
+                const isSameRepo = pr.head.repo && pr.head.repo.full_name === repoFullName;
+                const ref = isSameRepo ? pr.head.ref : pr.base.ref;
+                
+                core.info(`Triggering orchestrator on branch: ${ref}`);
+                
+                // Trigger the orchestrator workflow
+                await github.rest.actions.createWorkflowDispatch({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: 'ai-review-orchestrator.yml',
+                  ref: ref,
+                  inputs: {
+                    pr_number: prNumber.toString()
+                  }
+                });
+                
+                core.info('Orchestrator workflow triggered');
+                
+                // Add confirmation comment
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body: `🤖 AI Review Orchestrator triggered! Checking review status...`
+                });
+              } catch (error) {
+                core.warning(`Failed to trigger orchestrator: ${error.message}`);
+              }
+            }
+            
+            core.info('Helper processing complete');
