@@ -66,6 +66,10 @@ Thumbs.db
 # Logs
 *.log
 
+# Audit logs
+*.jsonl
+aegis_audit.jsonl
+
 # Temporary files
 tmp/
 temp/
