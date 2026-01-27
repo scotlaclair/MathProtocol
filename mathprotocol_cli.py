@@ -33,7 +33,7 @@ Examples:
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
     # LIST command - introspect registry
-    list_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "list", 
         help="List all registered Tasks, Parameters, and Response Codes"
     )

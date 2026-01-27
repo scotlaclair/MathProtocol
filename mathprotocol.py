@@ -35,36 +35,44 @@ class ProtocolRegistry:
 
     def _initialize_defaults(self):
         """Initialize default protocol mappings."""
-        # Register default primes (tasks)
-        self.register_task(2, "PING")
-        self.register_task(3, "ACKNOWLEDGE")
-        self.register_task(5, "ANALYZE_INTENT")
-        self.register_task(7, "EXTRACT_ENTITIES")
-        self.register_task(11, "SUMMARIZE")
-        self.register_task(13, "CLASSIFY")
-        self.register_task(17, "TRANSLATE")
-        self.register_task(19, "GENERATE_CODE")
-        self.register_task(23, "VALIDATE_LOGIC")
+        # Register default primes (tasks) to match MathProtocol.TASKS
+        self.register_task(2, "Sentiment")
+        self.register_task(3, "Summarization")
+        self.register_task(5, "LangDetect")
+        self.register_task(7, "EntityExtract")
+        self.register_task(11, "Q&A")
+        self.register_task(13, "Classify")
+        self.register_task(17, "Translate")
+        self.register_task(19, "Moderate")
+        self.register_task(23, "Keywords")
+        self.register_task(29, "Readability")
 
-        # Register default fibonacci (parameters)
-        self.register_parameter(1, "DEFAULT")
-        self.register_parameter(2, "VERBOSE")
-        self.register_parameter(3, "CONCISE")
-        self.register_parameter(5, "JSON_FORMAT")
-        self.register_parameter(8, "MARKDOWN_FORMAT")
-        self.register_parameter(13, "STRICT_MODE")
-        self.register_parameter(21, "EXPLAIN_REASONING")
+        # Register default fibonacci (parameters) to match MathProtocol.PARAMS
+        self.register_parameter(1, "Brief")
+        self.register_parameter(2, "Medium")
+        self.register_parameter(3, "Detailed")
+        self.register_parameter(5, "JSON")
+        self.register_parameter(8, "List")
+        self.register_parameter(13, "Confidence")
+        self.register_parameter(21, "Explain")
+        # Extended parameters not in original PARAMS
         self.register_parameter(34, "INCLUDE_CITATIONS")
         self.register_parameter(55, "REDACT_PII")
         self.register_parameter(89, "MAX_PRECISION")
 
-        # Register default powers of 2 (responses)
+        # Register default powers of 2 (responses) to match MathProtocol.RESPONSES
+        # Success Bit (mandatory in v2.1, treated separately from semantic flags)
         self.register_response(1, "SUCCESS_BIT")
-        self.register_response(2, "ERROR_GENERIC")
-        self.register_response(4, "ERROR_INVALID_PRIME")
-        self.register_response(8, "ERROR_INVALID_PARAM")
-        self.register_response(16, "ERROR_CONTEXT_TOO_LARGE")
-        self.register_response(32, "ERROR_UNSAFE_CONTENT")
+        # Semantic response flags (must align with MathProtocol.RESPONSES)
+        self.register_response(2, "Positive")
+        self.register_response(4, "Negative")
+        self.register_response(8, "Neutral")
+        self.register_response(16, "English")
+        self.register_response(32, "Spanish")
+        self.register_response(64, "French")
+        self.register_response(128, "HighConf")
+        self.register_response(256, "MedConf")
+        self.register_response(512, "LowConf")
 
     def reset(self):
         """Reset registry to default state (primarily for testing)."""
@@ -82,10 +90,21 @@ class ProtocolRegistry:
             name: Human-readable name for the task
             
         Raises:
-            ValueError: If the provided number is not prime
+            ValueError: If the provided number is not prime or not in the
+                predefined MathProtocol.PRIMES task set (when protocol is loaded).
         """
         if not self._is_prime(prime):
             raise ValueError(f"Task ID {prime} must be a prime number.")
+        # Enforce that task codes stay within the core protocol's prime set
+        # to maintain strict, deterministic validation.
+        # Only validate against PRIMES if MathProtocol class exists (avoid circular import during init)
+        if 'MathProtocol' in globals():
+            MP = globals()['MathProtocol']
+            if prime not in MP.PRIMES:
+                raise ValueError(
+                    f"Task ID {prime} is not a valid protocol task code. "
+                    f"Valid task IDs are: {sorted(MP.PRIMES)}"
+                )
         self.tasks[prime] = name
 
     def register_parameter(self, fib: int, name: str):
@@ -95,7 +114,16 @@ class ProtocolRegistry:
         Args:
             fib: A fibonacci number to use as parameter identifier
             name: Human-readable name for the parameter
+        
+        Raises:
+            ValueError: If the provided number is not a valid Fibonacci parameter code
+                (when protocol is loaded).
         """
+        # Only validate against FIBONACCI if MathProtocol class exists (avoid circular import during init)
+        if 'MathProtocol' in globals():
+            MP = globals()['MathProtocol']
+            if fib not in MP.FIBONACCI:
+                raise ValueError(f"Parameter ID {fib} must be a valid Fibonacci value from the protocol set: {sorted(MP.FIBONACCI)}")
         self.parameters[fib] = name
 
     def register_response(self, power: int, name: str):
@@ -260,7 +288,10 @@ class MathProtocol:
             f"{context}\n"
             f"DATA_END\n"
             f"INSTRUCTION: Execute TASK {task_prime} with modifiers {params_fib}. "
-            f"Output ONLY the result code (Integer)."
+            f"Respond strictly in MathProtocol response format: "
+            f"\"<response_code>-<confidence>\" for classification tasks (no payload) "
+            f"or \"<response_code>-<confidence> | <payload>\" for generative tasks. "
+            f"Use only the defined integer codes and output nothing else."
         )
         return prompt
 

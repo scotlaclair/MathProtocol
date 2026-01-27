@@ -12,8 +12,12 @@ import time
 import hashlib
 import secrets
 import re
+import logging
 from typing import Dict, Any, List, Optional, Tuple
 from mathprotocol import MathProtocol, registry
+
+# Configure logger for security events
+logger = logging.getLogger(__name__)
 
 
 class ContextFirewall:
@@ -87,17 +91,19 @@ class MerkleLogger:
         Args:
             event_data: Dictionary containing event information
         """
-        event_data['timestamp'] = time.time()
-        event_data['prev_hash'] = self.previous_hash
+        # Work on a shallow copy to avoid mutating the caller-provided dict
+        log_record: Dict[str, Any] = dict(event_data)
+        log_record['timestamp'] = time.time()
+        log_record['prev_hash'] = self.previous_hash
         
-        serialized = json.dumps(event_data, sort_keys=True)
+        serialized = json.dumps(log_record, sort_keys=True)
         event_hash = hashlib.sha256(serialized.encode()).hexdigest()
         
         self.previous_hash = event_hash
-        event_data['merkle_hash'] = event_hash
+        log_record['merkle_hash'] = event_hash
         
         with open(self.log_path, "a") as f:
-            f.write(json.dumps(event_data) + "\n")
+            f.write(json.dumps(log_record) + "\n")
 
 
 class AegisGateway:
@@ -157,7 +163,8 @@ class AegisGateway:
                 "client_ip": client_ip,
                 "task_prime": task_prime,
                 "threat_score": threat_score,
-                "context_sample": raw_context[:100]
+                "context_hash": hashlib.sha256(raw_context.encode("utf-8")).hexdigest(),
+                "context_length": len(raw_context)
             })
             return {"code": 400, "message": "Request blocked: High threat level"}
         
@@ -196,8 +203,8 @@ class AegisGateway:
             ip: IP address to ban
             reason: Reason for the ban
         """
-        # In production, this would integrate with firewall/WAF
-        print(f"[SECURITY] BAN TRIGGERED: {ip} - Reason: {reason}")
+        # Log security event using logging module
+        logger.warning(f"BAN TRIGGERED: {ip} - Reason: {reason}")
 
 
 if __name__ == "__main__":

@@ -189,19 +189,31 @@ class TestProtocolRegistryV2:
     def test_registry_defaults(self):
         """Ensure default primes are loaded correctly."""
         from mathprotocol import registry
-        assert registry.get_task_name(17) == "TRANSLATE"
+        assert registry.get_task_name(17) == "Translate"
         assert registry.get_parameter_name(89) == "MAX_PRECISION"
         assert "SUCCESS_BIT" in registry.get_response_flags(1)
 
     def test_dynamic_registration(self):
         """Test the new V2 ability to register custom protocols."""
         from mathprotocol import registry
-        registry.register_task(101, "CUSTOM_OPS_TASK")
-        assert registry.get_task_name(101) == "CUSTOM_OPS_TASK"
+        # Use an in-range prime that's not already registered (31, 37, 41, 43, 47, 53, etc.)
+        registry.register_task(31, "CUSTOM_OPS_TASK")
+        assert registry.get_task_name(31) == "CUSTOM_OPS_TASK"
         
         # Test that non-prime registration raises ValueError
         with pytest.raises(ValueError):
             registry.register_task(100, "BAD_NUMBER")  # Not prime
+        
+        # Test that out-of-range prime registration raises ValueError
+        with pytest.raises(ValueError):
+            registry.register_task(101, "OUT_OF_RANGE")  # Prime but not in MathProtocol.PRIMES
+        
+        # Test parameter validation
+        with pytest.raises(ValueError):
+            registry.register_parameter(4, "INVALID_FIB")  # Not in Fibonacci set
+        
+        with pytest.raises(ValueError):
+            registry.register_parameter(144, "OUT_OF_RANGE_FIB")  # Fibonacci but not in protocol set
 
     def test_checksum_calculation(self):
         """Verify the deterministic checksum logic."""
@@ -219,7 +231,7 @@ class TestProtocolRegistryV2:
         """Test bitwise flag decoding."""
         result = self.protocol.decode_response(4)
         assert not result['success']
-        assert "ERROR_INVALID_PRIME" in result['flags']
+        assert "Negative" in result['flags']
 
         result = self.protocol.decode_response(1)
         assert result['success']
@@ -228,11 +240,11 @@ class TestProtocolRegistryV2:
     def test_registry_reset(self):
         """Test that registry.reset() works correctly."""
         from mathprotocol import registry
-        registry.register_task(103, "TEMP_TASK")
-        assert registry.get_task_name(103) == "TEMP_TASK"
+        registry.register_task(37, "TEMP_TASK")
+        assert registry.get_task_name(37) == "TEMP_TASK"
         
         registry.reset()
-        assert registry.get_task_name(103) == "UNKNOWN_TASK_103"
+        assert registry.get_task_name(37) == "UNKNOWN_TASK_37"
 
     def test_construct_prompt_format(self):
         """Test that constructed prompts have correct format."""
@@ -254,7 +266,7 @@ class TestProtocolRegistryV2:
         # Test multiple flags (bitwise OR)
         flags = registry.get_response_flags(5)  # 1 + 4
         assert "SUCCESS_BIT" in flags
-        assert "ERROR_INVALID_PRIME" in flags
+        assert "Negative" in flags
         assert len(flags) == 2
 
     def test_register_response_validation(self):
