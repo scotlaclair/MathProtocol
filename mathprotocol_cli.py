@@ -160,8 +160,8 @@ def compose_prompt(protocol: MathProtocol, task: int, params: List[int], context
     print("-" * 70)
     
     # Validation reminder
-    print("\n💡 Reminder: LLM response should be in format: <response_code>-<confidence>")
-    print("   Example: 17-128 (16 English + 1 Success Bit, High Confidence)")
+    print("\n💡 Reminder: LLM response should be a single integer response code")
+    print("   Example: 128 (High Confidence)")
     print("\n" + "=" * 70 + "\n")
 
 
