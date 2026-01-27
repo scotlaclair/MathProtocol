@@ -177,5 +177,110 @@ class TestMathematicalSets:
             assert p > 0 and (p & (p - 1)) == 0, f"{p} is not a power of 2"
 
 
+class TestProtocolRegistryV2:
+    """Test suite for V2 ProtocolRegistry features."""
+    
+    def setup_method(self):
+        """Setup test fixtures."""
+        from mathprotocol import registry
+        self.protocol = MathProtocol()
+        registry.reset()  # Use the new reset() method
+
+    def test_registry_defaults(self):
+        """Ensure default primes are loaded correctly."""
+        from mathprotocol import registry
+        assert registry.get_task_name(17) == "Translate"
+        assert registry.get_parameter_name(89) == "MAX_PRECISION"
+        assert "SUCCESS_BIT" in registry.get_response_flags(1)
+
+    def test_dynamic_registration(self):
+        """Test the new V2 ability to register custom protocols."""
+        from mathprotocol import registry
+        # Use an in-range prime that's not already registered (31, 37, 41, 43, 47, 53, etc.)
+        registry.register_task(31, "CUSTOM_OPS_TASK")
+        assert registry.get_task_name(31) == "CUSTOM_OPS_TASK"
+        
+        # Test that non-prime registration raises ValueError
+        with pytest.raises(ValueError):
+            registry.register_task(100, "BAD_NUMBER")  # Not prime
+        
+        # Test that out-of-range prime registration raises ValueError
+        with pytest.raises(ValueError):
+            registry.register_task(101, "OUT_OF_RANGE")  # Prime but not in MathProtocol.PRIMES
+        
+        # Test parameter validation
+        with pytest.raises(ValueError):
+            registry.register_parameter(4, "INVALID_FIB")  # Not in Fibonacci set
+        
+        with pytest.raises(ValueError):
+            registry.register_parameter(144, "OUT_OF_RANGE_FIB")  # Fibonacci but not in protocol set
+
+    def test_checksum_calculation(self):
+        """Verify the deterministic checksum logic."""
+        prompt = self.protocol.construct_prompt(17, [2, 3], "Test Data")
+        assert "CHECKSUM: 85" in prompt
+        assert "TASK_PRIME: 17" in prompt
+
+    def test_validation_logic(self):
+        """Test valid/invalid request checking."""
+        assert self.protocol.validate_request(17, [89])
+        assert not self.protocol.validate_request(999, [89])
+        assert not self.protocol.validate_request(17, [4])
+
+    def test_response_decoding(self):
+        """Test bitwise flag decoding."""
+        result = self.protocol.decode_response(4)
+        assert not result['success']
+        assert "Negative" in result['flags']
+
+        result = self.protocol.decode_response(1)
+        assert result['success']
+        assert "SUCCESS_BIT" in result['flags']
+
+    def test_registry_reset(self):
+        """Test that registry.reset() works correctly."""
+        from mathprotocol import registry
+        registry.register_task(37, "TEMP_TASK")
+        assert registry.get_task_name(37) == "TEMP_TASK"
+        
+        registry.reset()
+        assert registry.get_task_name(37) == "UNKNOWN_TASK_37"
+
+    def test_construct_prompt_format(self):
+        """Test that constructed prompts have correct format."""
+        prompt = self.protocol.construct_prompt(11, [1, 2, 3], "What is AI?")
+        assert "MATHPROTOCOL_V2_REQUEST" in prompt
+        assert "TASK_PRIME: 11" in prompt
+        assert "PARAM_FIB: [1, 2, 3]" in prompt
+        assert "DATA_START" in prompt
+        assert "DATA_END" in prompt
+        assert "What is AI?" in prompt
+
+    def test_response_flags_bitwise(self):
+        """Test that response flags are correctly extracted."""
+        from mathprotocol import registry
+        # Test single flag
+        flags = registry.get_response_flags(1)
+        assert flags == ["SUCCESS_BIT"]
+        
+        # Test multiple flags (bitwise OR)
+        flags = registry.get_response_flags(5)  # 1 + 4
+        assert "SUCCESS_BIT" in flags
+        assert "Negative" in flags
+        assert len(flags) == 2
+
+    def test_register_response_validation(self):
+        """Test that response registration validates power of 2."""
+        from mathprotocol import registry
+        
+        # Valid power of 2
+        registry.register_response(64, "TEST_FLAG")
+        assert "TEST_FLAG" in registry.get_response_flags(64)
+        
+        # Invalid - not power of 2
+        with pytest.raises(ValueError):
+            registry.register_response(63, "INVALID_FLAG")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -6,10 +6,184 @@ predefined mathematical codes (primes, fibonacci, powers of 2) to prevent
 prompt injection and ensure deterministic behavior.
 
 Version 2.1 adds the mandatory Success Bit requirement for enhanced validation.
+Version 2.1 also adds ProtocolRegistry for dynamic task/parameter registration.
 """
 
 import re
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
+
+
+class ProtocolRegistry:
+    """
+    Dynamic Registry for MathProtocol tasks and parameters.
+    Allows for extensibility without modifying the core library.
+    
+    This is a singleton that maintains mappings between mathematical codes
+    and their semantic meanings. It can be extended at runtime to support
+    custom protocol extensions.
+    """
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(ProtocolRegistry, cls).__new__(cls)
+            cls._instance.tasks = {}
+            cls._instance.parameters = {}
+            cls._instance.responses = {}
+            cls._instance._initialize_defaults()
+        return cls._instance
+
+    def _initialize_defaults(self):
+        """Initialize default protocol mappings."""
+        # Register default primes (tasks) to match MathProtocol.TASKS
+        self.register_task(2, "Sentiment")
+        self.register_task(3, "Summarization")
+        self.register_task(5, "LangDetect")
+        self.register_task(7, "EntityExtract")
+        self.register_task(11, "Q&A")
+        self.register_task(13, "Classify")
+        self.register_task(17, "Translate")
+        self.register_task(19, "Moderate")
+        self.register_task(23, "Keywords")
+        self.register_task(29, "Readability")
+
+        # Register default fibonacci (parameters) to match MathProtocol.PARAMS
+        self.register_parameter(1, "Brief")
+        self.register_parameter(2, "Medium")
+        self.register_parameter(3, "Detailed")
+        self.register_parameter(5, "JSON")
+        self.register_parameter(8, "List")
+        self.register_parameter(13, "Confidence")
+        self.register_parameter(21, "Explain")
+        # Extended parameters not in original PARAMS
+        self.register_parameter(34, "INCLUDE_CITATIONS")
+        self.register_parameter(55, "REDACT_PII")
+        self.register_parameter(89, "MAX_PRECISION")
+
+        # Register default powers of 2 (responses) to match MathProtocol.RESPONSES
+        # Success Bit (mandatory in v2.1, treated separately from semantic flags)
+        self.register_response(1, "SUCCESS_BIT")
+        # Semantic response flags (must align with MathProtocol.RESPONSES)
+        self.register_response(2, "Positive")
+        self.register_response(4, "Negative")
+        self.register_response(8, "Neutral")
+        self.register_response(16, "English")
+        self.register_response(32, "Spanish")
+        self.register_response(64, "French")
+        self.register_response(128, "HighConf")
+        self.register_response(256, "MedConf")
+        self.register_response(512, "LowConf")
+
+    def reset(self):
+        """Reset registry to default state (primarily for testing)."""
+        self.tasks = {}
+        self.parameters = {}
+        self.responses = {}
+        self._initialize_defaults()
+
+    def register_task(self, prime: int, name: str):
+        """
+        Register a new task code.
+        
+        Args:
+            prime: A prime number to use as task identifier
+            name: Human-readable name for the task
+            
+        Raises:
+            ValueError: If the provided number is not prime or not in the
+                predefined MathProtocol.PRIMES task set (when protocol is loaded).
+        """
+        if not self._is_prime(prime):
+            raise ValueError(f"Task ID {prime} must be a prime number.")
+        # Enforce that task codes stay within the core protocol's prime set
+        # to maintain strict, deterministic validation.
+        # Only validate against PRIMES if MathProtocol class exists (avoid circular import during init)
+        if 'MathProtocol' in globals():
+            MP = globals()['MathProtocol']
+            if prime not in MP.PRIMES:
+                raise ValueError(
+                    f"Task ID {prime} is not a valid protocol task code. "
+                    f"Valid task IDs are: {sorted(MP.PRIMES)}"
+                )
+        self.tasks[prime] = name
+
+    def register_parameter(self, fib: int, name: str):
+        """
+        Register a new parameter code.
+        
+        Args:
+            fib: A fibonacci number to use as parameter identifier
+            name: Human-readable name for the parameter
+        
+        Raises:
+            ValueError: If the provided number is not a valid Fibonacci parameter code
+                (when protocol is loaded).
+        """
+        # Only validate against FIBONACCI if MathProtocol class exists (avoid circular import during init)
+        if 'MathProtocol' in globals():
+            MP = globals()['MathProtocol']
+            if fib not in MP.FIBONACCI:
+                raise ValueError(f"Parameter ID {fib} must be a valid Fibonacci value from the protocol set: {sorted(MP.FIBONACCI)}")
+        self.parameters[fib] = name
+
+    def register_response(self, power: int, name: str):
+        """
+        Register a new response code.
+        
+        Args:
+            power: A power of 2 to use as response identifier
+            name: Human-readable name for the response
+            
+        Raises:
+            ValueError: If the provided number is not a power of 2
+        """
+        if not (power > 0 and (power & (power - 1)) == 0):
+            raise ValueError(f"Response ID {power} must be a power of 2.")
+        self.responses[power] = name
+    
+    def get_task_name(self, prime: int) -> str:
+        """Get the name of a registered task."""
+        return self.tasks.get(prime, f"UNKNOWN_TASK_{prime}")
+
+    def get_parameter_name(self, fib: int) -> str:
+        """Get the name of a registered parameter."""
+        return self.parameters.get(fib, f"UNKNOWN_PARAM_{fib}")
+
+    def get_response_flags(self, code: int) -> List[str]:
+        """
+        Decode a response code into its constituent flags.
+        
+        Args:
+            code: Integer response code (may be composite of multiple flags)
+            
+        Returns:
+            List of flag names that are set in the code
+        """
+        flags = []
+        for power, name in self.responses.items():
+            if code & power:
+                flags.append(name)
+        return flags
+
+    @staticmethod
+    def _is_prime(n: int) -> bool:
+        """Check if a number is prime."""
+        if n <= 1:
+            return False
+        if n <= 3:
+            return True
+        if n % 2 == 0 or n % 3 == 0:
+            return False
+        i = 5
+        while i * i <= n:
+            if n % i == 0 or n % (i + 2) == 0:
+                return False
+            i += 6
+        return True
+
+
+# Singleton instance for global access
+registry = ProtocolRegistry()
 
 
 class MathProtocol:
@@ -83,6 +257,83 @@ class MathProtocol:
     # Task types
     CLASSIFICATION_TASKS = {2, 5, 13, 19, 29}  # No payload
     GENERATIVE_TASKS = {3, 7, 11, 17, 23}  # Requires payload
+    
+    def __init__(self):
+        """Initialize MathProtocol with registry reference."""
+        self.registry = registry
+    
+    # === NEW V2 METHODS ===
+    
+    def construct_prompt(self, task_prime: int, params_fib: List[int], context: str) -> str:
+        """
+        Constructs the deterministic mathematical prompt (V2 API).
+        
+        Args:
+            task_prime: Prime number identifying the task
+            params_fib: List of Fibonacci numbers as parameters
+            context: The data context for the task
+            
+        Returns:
+            Formatted protocol prompt string
+        """
+        fib_sum = sum(params_fib) if params_fib else 1
+        checksum = task_prime * fib_sum
+        
+        prompt = (
+            f"MATHPROTOCOL_V2_REQUEST\n"
+            f"TASK_PRIME: {task_prime}\n"
+            f"PARAM_FIB: {params_fib}\n"
+            f"CHECKSUM: {checksum}\n"
+            f"DATA_START\n"
+            f"{context}\n"
+            f"DATA_END\n"
+            f"INSTRUCTION: Execute TASK {task_prime} with modifiers {params_fib}. "
+            f"Respond strictly in MathProtocol response format: "
+            f"\"<response_code>-<confidence>\" for classification tasks (no payload) "
+            f"or \"<response_code>-<confidence> | <payload>\" for generative tasks. "
+            f"Use only the defined integer codes and output nothing else."
+        )
+        return prompt
+
+    def decode_response(self, response_int: int) -> Dict[str, Any]:
+        """
+        Decodes the integer response from the LLM (V2 API).
+        
+        Args:
+            response_int: Integer response code from the LLM
+            
+        Returns:
+            Dictionary with decoded response information
+        """
+        is_success = (response_int & 1) == 1
+        flags = self.registry.get_response_flags(response_int)
+        
+        return {
+            "raw_code": response_int,
+            "success": is_success,
+            "flags": flags,
+            "description": " | ".join(flags)
+        }
+
+    def validate_request(self, task_prime: int, params_fib: List[int]) -> bool:
+        """
+        Validates if the task and params are registered (V2 API).
+        
+        Args:
+            task_prime: Prime number task identifier
+            params_fib: List of Fibonacci parameter identifiers
+            
+        Returns:
+            True if all codes are registered, False otherwise
+        """
+        if task_prime not in self.registry.tasks:
+            return False
+        for p in params_fib:
+            if p not in self.registry.parameters:
+                return False
+        return True
+    
+    # === EXISTING V1 METHODS - PRESERVED FOR BACKWARD COMPATIBILITY ===
     
     def validate_input(self, input_str: str) -> bool:
         """
