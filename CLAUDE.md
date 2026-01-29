@@ -15,7 +15,7 @@ This document provides essential context and guidelines for AI assistants workin
 ```
 TASKS (Primes):      2, 3, 5, 7, 11, 13, 17, 19, 23, 29
 PARAMETERS (Fib):    1, 2, 3, 5, 8, 13, 21, 34, 55, 89
-RESPONSES (Pow2):    2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096
+RESPONSES (Pow2):    1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096
 TRAP PRIMES:         43, 47, 53, 59, 61  # DO NOT USE
 ```
 
