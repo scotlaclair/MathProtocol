@@ -24,6 +24,23 @@ TRAP PRIMES:         43, 47, 53, 59, 61  # DO NOT USE
 **Input**: `[TASK]-[PARAM] | [CONTEXT]`
 **Output**: `[RESPONSE]-[CONFIDENCE] | [PAYLOAD]`
 
+### v2.1 Success Bit Requirement (CRITICAL)
+
+All valid responses MUST include the Success Bit, making the response code an **odd number**:
+
+```
+Response Code = Base Power of 2 + 1 (Success Bit)
+
+Examples:
+  Positive sentiment: 2 + 1 = 3   (not 2)
+  Negative sentiment: 4 + 1 = 5   (not 4)
+  High confidence:    128 + 1 = 129 (not 128)
+```
+
+**Validation Rule**: `(response_code & 1) == 1` must be true for valid responses.
+
+**Why**: The Success Bit ensures responses are mathematically distinguishable from error states and provides a cryptographic commitment that the LLM processed the request successfully.
+
 ### Task Code Mappings
 
 | Code | Task | Type |
@@ -95,10 +112,11 @@ python mathprotocol_cli.py compose     # Build protocol prompts
 These rules MUST NEVER be violated:
 
 1. **Mathematical Determinism**: TASK=Prime, PARAM=Fibonacci, RESPONSE=Power of 2
-2. **Task Type Safety**: Classification tasks (2, 5, 13, 19, 29) MUST NOT have payload; Generative tasks (3, 7, 11, 17, 23) MUST have payload
-3. **Zero Natural Language in Control Flow**: Only CONTEXT field may contain natural language
-4. **Security Logging**: All security events MUST be logged to Merkle Audit Chain
-5. **PHI/PII Protection**: Sensitive data MUST be redacted before LLM processing
+2. **v2.1 Success Bit**: All valid response codes MUST be odd (base_code + 1). Even response codes indicate protocol failure.
+3. **Task Type Safety**: Classification tasks (2, 5, 13, 19, 29) MUST NOT have payload; Generative tasks (3, 7, 11, 17, 23) MUST have payload
+4. **Zero Natural Language in Control Flow**: Only CONTEXT field may contain natural language
+5. **Security Logging**: All security events MUST be logged to Merkle Audit Chain
+6. **PHI/PII Protection**: Sensitive data MUST be redacted before LLM processing
 
 ## Code Style Requirements
 
@@ -270,11 +288,17 @@ task = "sentiment analysis"
 # GOOD: Mathematical codes only
 task = 2
 
+# BAD: Even response code (missing Success Bit)
+return "2-128"  # 2 is even, violates v2.1
+
+# GOOD: Odd response code (includes Success Bit)
+return "3-129"  # 3 = 2+1, 129 = 128+1
+
 # BAD: Payload in classification response
-return "2-128 | The sentiment is positive"
+return "3-129 | The sentiment is positive"
 
 # GOOD: Classification without payload
-return "2-128"
+return "3-129"
 
 # BAD: Trusting LLM output without validation
 result = llm.process(input)
@@ -325,9 +349,10 @@ All PRs require:
 
 ### Response Validation Failing
 1. Check response format: `CODE-CONFIDENCE | PAYLOAD`
-2. Verify codes are powers of 2
-3. Check task type (Classification vs Generative)
-4. Ensure v2.1 Success Bit compliance (response must be odd)
+2. **v2.1 Success Bit**: Response code MUST be odd (base + 1). Use `3` not `2`, use `129` not `128`
+3. Verify base codes are powers of 2 before adding Success Bit
+4. Check task type (Classification vs Generative)
+5. Validate with: `(response_code & 1) == 1` must be true
 
 ### Circuit Breaker Issues
 1. Check failure count vs threshold
