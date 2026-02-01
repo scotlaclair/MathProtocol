@@ -21,4 +21,4 @@ jobs:
           last_commit_age_days: 90
           allowed_prefixes: "feature/ bugfix/ hotfix/ dependabot/"
           ignore_branches: "main,master,develop,staging,production"
-          dry_run: false
+          dry_run: no
